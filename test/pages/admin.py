@@ -22,5 +22,7 @@ target_email = st.selectbox("변경할 계정", users_df["email"].tolist())
 new_role = st.selectbox("새 역할", list(ROLE_LABEL.keys()), format_func=ROLE_LABEL.get)
 if st.button("역할 변경", type="primary"):
     update_role(target_email, new_role)
-    st.success(f"{target_email} → {ROLE_LABEL[new_role]}")
+    # 위 사용자 목록을 갱신하려면 rerun이 필요한데, rerun은 st.success를 즉시 지운다.
+    # rerun 후에도 유지되는 st.toast로 결과와 '재로그인 후 적용' 안내를 함께 표시한다.
+    st.toast(f"{target_email} → {ROLE_LABEL[new_role]} · 대상자 재로그인 후 적용", icon="✅")
     st.rerun()
