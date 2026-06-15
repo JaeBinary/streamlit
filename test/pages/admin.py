@@ -1,5 +1,6 @@
 import streamlit as st
 
+from constants import ROLE_LABEL
 from database import load_users, update_role
 
 role = st.session_state.get("role", "viewer")
@@ -7,8 +8,6 @@ role = st.session_state.get("role", "viewer")
 if role != "admin":
     st.error("관리자만 접근할 수 있습니다.")
     st.stop()
-
-ROLE_LABEL = {"admin": "🔴 관리자", "editor": "🟡 편집자", "viewer": "🟢 뷰어"}
 
 st.title("👥 사용자 관리")
 
