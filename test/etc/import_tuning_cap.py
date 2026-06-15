@@ -28,6 +28,7 @@ ROW_SERIAL, ROW_DATE, ROW_TESTEDBY = 2, 3, 4
 ROW_DATA_START = 6
 COL_TEST_ITEM = 2                          # B열 (Gate Drive 시트는 C열이었음)
 TEST_ITEM_FIX = {}                         # 보정할 입력 오타 없음
+NAME_FIX = {"JBK": "김재빈", "MJC": "조민지"}  # 테스터 이니셜 → 정식 이름(타 보드 데이터와 통일)
 
 
 def _now() -> str:
@@ -62,6 +63,7 @@ def extract_rows():
         date_cell = ws.cell(row=ROW_DATE, column=c).value
         test_date = date_cell.date().isoformat() if isinstance(date_cell, datetime) else str(date_cell)
         tested_by = ws.cell(row=ROW_TESTEDBY, column=c).value
+        tested_by = NAME_FIX.get(tested_by, tested_by)
 
         for r in range(ROW_DATA_START, ws.max_row + 1):
             item_raw = ws.cell(row=r, column=COL_TEST_ITEM).value
