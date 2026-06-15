@@ -66,14 +66,16 @@ def extract_rows():
         for r in range(ROW_DATA_START, ws.max_row + 1):
             item_raw = ws.cell(row=r, column=COL_TEST_ITEM).value
             if item_raw is None:
-                continue  # 빈 행 / Overall Result 행 등은 건너뜀
+                continue  # 빈 행은 건너뜀
             test_item = _normalize_test_item(item_raw)
+            if not test_item.isdigit():
+                continue  # "Overall Result (PASS/FAIL)" 등 숫자가 아닌 항목 행은 제외
 
             meas = ws.cell(row=r, column=c).value
-            if meas is None or (isinstance(meas, str) and meas.strip() == ""):
-                continue  # 측정값 없는 칸은 행 생성 안 함
+            # 측정값 없는 칸은 NULL로 저장한다(예: test_item 7은 미측정이지만 행은 남긴다).
+            meas_val = None if (meas is None or (isinstance(meas, str) and meas.strip() == "")) else str(meas)
 
-            rows.append((serial, test_item, str(meas), test_date, str(tested_by)))
+            rows.append((serial, test_item, meas_val, test_date, str(tested_by)))
     return rows
 
 
