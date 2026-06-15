@@ -1,23 +1,27 @@
-import streamlit as st
 from pathlib import Path
 
-from database import *
+import streamlit as st
+
+from database import get_or_create_user
 
 IMAGES_DIR = Path(__file__).parent / "images"
 
-st.set_page_config(page_title="CG Progress", page_icon=str(IMAGES_DIR / "logo(89x89).png"), layout="wide")
-
+st.set_page_config(
+    page_title="CG Progress",
+    page_icon=str(IMAGES_DIR / "logo(89x89).png"),
+    layout="wide",
+)
 st.logo(str(IMAGES_DIR / "logo(1048x238)-removed.png"), size="large")
 
 # ── 로그인 게이트 ─────────────────────────────────────────
-def _login_page():
+# 공식 문서 권장 패턴: 미로그인 시 로그인 버튼만 그리고 st.stop()으로 중단한다.
+# 이렇게 하면 아래 st.navigation(하위 페이지)에 도달조차 못 하므로 비로그인 접근이 차단된다.
+# https://docs.streamlit.io/develop/concepts/connections/authentication
+# getattr: secrets.toml에 [auth]가 없으면 st.user.is_logged_in 자체가 없으므로 안전하게 False 처리.
+if not getattr(st.user, "is_logged_in", False):
     st.title("🔐 로그인이 필요합니다")
     st.button("Microsoft 계정으로 로그인", on_click=st.login, args=("microsoft",),
-              type="primary", use_container_width=True)
-
-if not st.user.is_logged_in:
-    pg = st.navigation([st.Page(_login_page, title="로그인", default=True)])
-    pg.run()
+              type="primary", width="stretch")
     st.stop()
 
 # ── 사용자 역할 확인 및 session_state 저장 ────────────────
@@ -32,7 +36,7 @@ with st.sidebar:
     st.write(f"**{st.user.name}**")
     st.write(f"{st.user.email}")
     st.caption(ROLE_LABEL.get(role, role))
-    st.button("로그아웃", on_click=st.logout, use_container_width=True)
+    st.button("로그아웃", on_click=st.logout, width="stretch")
 
 # ── 네비게이션 ────────────────────────────────────────────
 pages = [
