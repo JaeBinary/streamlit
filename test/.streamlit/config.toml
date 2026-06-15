@@ -4,6 +4,13 @@
 # 주석 처리된 항목은 기본값으로 동작합니다. 필요한 항목만 주석 해제하여 사용하세요.
 # ──────────────────────────────────────────────────────────
 
+[runner]
+# 상호작용 시 진행 중인 스크립트를 즉시 끊는 기능(기본 True). 켜져 있으면 폼이
+# submit 버튼까지 그려지기 전 프레임이 노출되어 "Missing Submit Button" 경고가
+# 순간적으로 깜빡인다. 끄면 각 rerun이 끝까지 그려진 뒤 다음 rerun이 시작된다.
+fastReruns = false
+
+
 [theme]
 
 # ── 기본 테마 ────────────────────────────────────────────
@@ -152,10 +159,13 @@ font = "serif"
 # 사이드바 전용 테마 — 메인 테마와 독립적으로 설정 가능
 # 지원 옵션: 색상, 폰트, 테두리 등 (base, fontFaces 제외)
 # ──────────────────────────────────────────────────────────
-# [theme.sidebar]
+# textColor을 명시하지 않으면 사이드바 textColor가 빈 값("")으로 파생되어
+# 프런트엔드 콘솔 에러("Invalid color passed for textColor in theme.sidebar")가
+# rerun마다 발생한다. 라이트 테마 기본 글자색으로 명시해 이를 막는다.
+[theme.sidebar]
+textColor = "#1A1A2E"
 # backgroundColor           = "#1A1A2E"
 # secondaryBackgroundColor  = "#2A2A4E"
-# textColor                 = "#FFFFFF"
 # primaryColor              = "#4A90D9"
 
 
