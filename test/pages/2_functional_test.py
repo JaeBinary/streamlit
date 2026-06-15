@@ -1,194 +1,223 @@
-from datetime import datetime
-
 import streamlit as st
 
-from database import bulk_update_records, clear_records, delete_record, insert_record, load_records
+from database import insert_records, load_records
+
+# 위자드 각 스텝 정의 — 순서대로 1~25번 스텝.
+#   description : 화면에 표시할 문구 (번호는 문구에 직접 포함)
+#   min / max: 허용 범위. None이면 범위 표시·경고 없음. 범위 밖 값도 저장은 가능.
+#   unit     : 측정 단위 (없으면 "")
+# min/max/unit은 화면 표시·경고용일 뿐 DB에는 저장되지 않는다.
+# (DB의 test_item에는 스텝 번호 1~25, measurements에는 측정값만 저장된다.)
+STEPS = [
+    {"description": "01. Measure the resistance across the component R11", "min": 9.9, "max": 10.1, "unit": "Ω"},
+    {"description": "02. Measure the resistance across the component R12", "min": 9.9, "max": 10.1, "unit": "Ω"},
+    {"description": "03. Measure the resistance across the component R13", "min": 9.9, "max": 10.1, "unit": "Ω"},
+    {"description": "04. Measure the resistance across the component R3", "min": 9.9, "max": 10.1, "unit": "Ω"},
+    {"description": "05. Measure the capacitance across the component C1", "min": 4.5e-08, "max": 4.9e-08, "unit": "F"},
+    {"description": "06. Measure the capacitance across the component C2", "min": 4.5e-08, "max": 4.9e-08, "unit": "F"},
+    {"description": "07. Measure the capacitance across the component C3", "min": 4.5e-08, "max": 4.9e-08, "unit": "F"},
+    {"description": "08. Measure the capacitance across the component C4", "min": 4.5e-08, "max": 4.9e-08, "unit": "F"},
+    {"description": "09. Check the continuity on these points J8 and J9", "min": 350, "max": 450, "unit": "Ω"},
+    {"description": "10. Check the continuity on these points J14-1 and J14-2", "min": 350, "max": 450, "unit": "Ω"},
+    {"description": "11. Check the continuity on these points J14-3 and J14-4", "min": 350, "max": 450, "unit": "Ω"},
+    {"description": "12. Check the continuity on these points J14-5 and J14-6", "min": 350, "max": 450, "unit": "Ω"},
+    {"description": "13. Check the continuity on these points J14-7 and J14-8", "min": 350, "max": 450, "unit": "Ω"},
+    {"description": "14. Check the continuity on these points J14-9 and J14-10", "min": 350, "max": 450, "unit": "Ω"},
+    {"description": "15. Check the continuity on these points J14-11 and J14-12", "min": 350, "max": 450, "unit": "Ω"},
+    {"description": "16. Check the continuity on these points J14-13 and J14-14", "min": 350, "max": 450, "unit": "Ω"},
+    {"description": "17. Check the continuity on these points J14-15 and J14-16", "min": 350, "max": 450, "unit": "Ω"},
+    {"description": "18. Check the continuity on these points J14-17 and J14-18", "min": 350, "max": 450, "unit": "Ω"},
+    {"description": "19. Check the continuity on these points J14-19 and J14-20", "min": 350, "max": 450, "unit": "Ω"},
+    {"description": "20. Check the continuity on these points J14-21 and J14-22", "min": 350, "max": 450, "unit": "Ω"},
+    {"description": "21. Check the continuity on these points J14-23 and J14-24", "min": 350, "max": 450, "unit": "Ω"},
+    {"description": "22. Check the continuity on these points J14-25 and J14-26", "min": 350, "max": 450, "unit": "Ω"},
+    {"description": "23. Check the continuity on these points J14-27 and J14-28", "min": 350, "max": 450, "unit": "Ω"},
+    {"description": "24. Check the continuity on these points J14-29 and J14-30", "min": 350, "max": 450, "unit": "Ω"},
+    {"description": "25. Checking the continuity of J14-1 and J14-2 After R1 and R2 were screwed on their designated footprint", "min": 350, "max": 450, "unit": "Ω"},
+]
+TOTAL_STEPS = len(STEPS)
 
 role = st.session_state.get("role", "viewer")
+can_edit = role in ("admin", "editor")
 
 st.title("Functional Test")
 st.caption('CG PCBA 5종에 대한 "기능 테스트"를 진행합니다.')
 
-TABS = ["H-Bridge B/D", "Gate Driver B/D", "Bypass Capacitor B/D", "Tuning Capacitor B/D", "Controller B/D"]
-tab_hBridge, tab_gateDriver, tab_bypassCapacitor, tab_tuningCapacitor, tab_controller = st.tabs(TABS)
 
-with tab_hBridge:
-    st.subheader("H-Bridge Board")
-    # ── 입력 폼 ───────────────────────────────────────────────
-    if role == "viewer":
-        st.info("조회 전용 계정입니다. 데이터를 추가하려면 관리자에게 권한을 요청하세요.")
+# ── 입력 폼 ───────────────────────────────────────────────
+# 위자드 진행 상태는 ht_* 세션 키에 보관한다.
+#   ht_base   : {"serial", "test_date", "tested_by"}  (기본 정보 확인 시 생성 → 위자드 진입)
+#   ht_step   : 현재 스텝 인덱스 (0 ~ TOTAL_STEPS)
+#   ht_values : {스텝 인덱스: 측정값}
+#   ht_val    : 현재 측정값 입력칸의 값(위젯 key). 스텝마다 콜백에서 갈아끼운다.
+#   ht_done   : 25스텝 저장 완료 플래그
+_WIZARD_KEYS = ("ht_base", "ht_step", "ht_values", "ht_val", "ht_done")
+
+
+def render_input_form() -> None:
+    """① 기본 정보(Serial·날짜·담당자) 확인 → ② 25스텝 측정값 입력 → 일괄 저장."""
+    if "ht_base" not in st.session_state:
+        _render_base_form()
     else:
+        _render_step_wizard()
+
+
+def _normalize_serial(raw: str) -> str | None:
+    """H-Bridge Serial을 'H' + 숫자 4자리로 정규화. '21'·'H21'·'0021' → 'H0021'. 형식 오류 시 None."""
+    s = raw.strip().upper().removeprefix("H")
+    if not s.isdigit() or len(s) > 4:
+        return None
+    return f"H{int(s):04d}"
+
+
+def _render_base_form() -> None:
+    # 폼 대신 컨테이너 + 일반 버튼 사용. 이 화면은 Enter 제출이 필요 없고,
+    # 폼이면 페이지 첫 렌더 때 submit 버튼이 한 프레임 늦게 도착해
+    # "Missing Submit Button"이 깜빡이기 때문이다. (측정값 스텝만 폼 유지)
+    with st.container(border=True):
         col1, col2, col3 = st.columns(3)
-        with col1:
-            serial = st.text_input("Serial 번호", key="q_serial")
-        with col2:
-            test_date = st.date_input("테스트 날짜", key="q_test_date")
-        with col3:
-            if "q_test_by" not in st.session_state:
-                st.session_state["q_test_by"] = st.user.name
-            test_by = st.text_input("테스트 담당자", key="q_test_by")
+        serial = col1.text_input("Serial 번호", placeholder="예시: 21 or H0021")
+        test_date = col2.date_input("테스트 날짜")
+        tested_by = col3.text_input("테스트 담당자", value=st.user.name)
+        confirmed = st.button("확인", type="primary", width="stretch")
 
-        all_filled = bool(serial.strip() and test_by.strip())
-        if st.button("확인", type="primary", disabled=not all_filled, use_container_width=True):
-            st.session_state.show_steps = True
-            st.session_state.q_step = 0
-            st.session_state.q_answers = {}
+    if not confirmed:
+        return
 
-        # Q4~Q5: 스텝 위자드 (기본 정보 입력 후 표시)
-        if st.session_state.get("show_steps", False):
-            STEPS = [
-                [{"key": "test_item",    "label": "Q1. Test Item을 입력하세요.",     "type": "text"}],
-                [{"key": "measurements", "label": "Q2. Measurements를 입력하세요.", "type": "textarea"}],
-            ]
-            ALL_QUESTIONS = [q for step_qs in STEPS for q in step_qs]
+    serial_norm = _normalize_serial(serial)
+    if serial_norm is None:
+        st.error("Serial 번호는 'H + 숫자 4자리' 형식입니다. 숫자만 입력해도 됩니다 (예: 21 → H0021).")
+        return
+    if not tested_by.strip():
+        st.error("테스트 담당자는 필수 항목입니다.")
+        return
 
-            if "q_step" not in st.session_state:
-                st.session_state.q_step = 0
-                st.session_state.q_answers = {}
+    st.session_state.ht_base = {
+        "serial": serial_norm,
+        "test_date": test_date.isoformat(),
+        "tested_by": tested_by.strip(),
+    }
+    st.session_state.ht_step = 0
+    st.session_state.ht_values = {}
+    st.session_state.ht_val = ""
+    st.rerun()
 
-            step = st.session_state.q_step
-            total = len(STEPS)
 
-            if step < total:
-                step_qs = STEPS[step]
-                st.progress(step / total, text=f"{step}/{total} 완료")
+def _reset_wizard() -> None:
+    for key in _WIZARD_KEYS:
+        st.session_state.pop(key, None)
 
-                vals = {}
-                for q in step_qs:
-                    st.markdown(f"**{q['label']}**")
-                    saved = st.session_state.q_answers.get(q["key"])
-                    if q["type"] == "text":
-                        vals[q["key"]] = st.text_input("답변", label_visibility="collapsed",
-                                            value=saved or "", key=f"q_{q['key']}")
-                    elif q["type"] == "textarea":
-                        vals[q["key"]] = st.text_area("답변", placeholder="측정값을 입력하세요...",
-                                        value=saved or "",
-                                        label_visibility="collapsed", key=f"q_{q['key']}")
 
-                col_prev, col_next = st.columns([1, 3])
-                with col_prev:
-                    if step > 0 and st.button("← 이전", use_container_width=True):
-                        st.session_state.q_answers.update(vals)
-                        st.session_state.q_step -= 1
-                        st.rerun()
-                with col_next:
-                    btn_label = "다음 →" if step < total - 1 else "저장 완료"
-                    if st.button(btn_label, type="primary", use_container_width=True):
-                        invalid = [q for q in step_qs if q["type"] == "text" and not vals[q["key"]].strip()]
-                        if invalid:
-                            st.error("값을 입력해주세요.")
-                        else:
-                            st.session_state.q_answers.update(vals)
-                            st.session_state.q_step += 1
-                            st.rerun()
-            else:
-                a = st.session_state.q_answers
-                insert_record(serial, test_date.isoformat(), test_by, a["test_item"], a["measurements"], st.user.email)
-                st.success(f"✅ Serial **{serial}** / {a['test_item']} 결과가 저장되었습니다!")
+# ── 위자드 콜백 ───────────────────────────────────────────
+# 버튼 처리는 st.rerun() 대신 on_click 콜백으로 한다. 콜백은 스크립트 재실행 '전'에
+# 실행되어 rerun이 한 번만 깔끔히 돌기 때문에, 폼 제출 직후 이중 rerun으로 폼이
+# 허물어지며 "Missing Submit Button"이 깜빡이는 현상이 사라진다.
+def _advance_step() -> None:
+    """현재 스텝 값을 저장하고 다음 스텝으로(마지막이면 25건 일괄 저장)."""
+    step = st.session_state.ht_step
+    values = st.session_state.ht_values
+    values[step] = st.session_state.ht_val
+    if step >= TOTAL_STEPS - 1:
+        base = st.session_state.ht_base
+        rows = [
+            (base["serial"], i + 1, base["test_date"], base["tested_by"], values[i])
+            for i in range(TOTAL_STEPS)
+        ]
+        insert_records(rows, st.user.email)
+        st.session_state.ht_done = True
+    else:
+        st.session_state.ht_step += 1
+        # 다음 스텝의 저장값(없으면 빈값)으로 입력칸을 갈아끼운다. key가 고정이라
+        # 위젯 재생성 없이 값만 바뀌므로 폼이 안정적으로 유지된다.
+        st.session_state.ht_val = values.get(st.session_state.ht_step, "")
 
-                st.markdown("**입력 내용 요약**")
-                st.write(f"- Serial 번호 **{serial}**")
-                st.write(f"- 테스트 날짜 **{test_date.isoformat()}**")
-                st.write(f"- 테스트 담당자 **{test_by}**")
-                for q in ALL_QUESTIONS:
-                    st.write(f"- {q['label'].split('. ')[1]} **{a[q['key']]}**")
 
-                if st.button("➕ 새 항목 추가", type="primary"):
-                    st.session_state.q_step = 0
-                    st.session_state.q_answers = {}
-                    st.session_state.show_steps = False
-                    st.session_state["q_serial"] = ""
-                    st.session_state["q_test_by"] = st.user.name
-                    st.rerun()
+def _prev_step() -> None:
+    if st.session_state.ht_step > 0:
+        st.session_state.ht_values[st.session_state.ht_step] = st.session_state.ht_val
+        st.session_state.ht_step -= 1
+        st.session_state.ht_val = st.session_state.ht_values.get(st.session_state.ht_step, "")
 
-    # ── 데이터 조회 ───────────────────────────────────────────
-    st.divider()
+
+def _render_step_wizard() -> None:
+    base = st.session_state.ht_base
+
+    # 저장 완료 화면
+    if st.session_state.get("ht_done"):
+        st.success(f"✅ **{base['serial']}** / {TOTAL_STEPS}개 스텝이 저장되었습니다!")
+        st.button("➕ 새 항목 추가", type="primary", on_click=_reset_wizard)
+        return
+
+    step = st.session_state.ht_step
+    spec = STEPS[step]
+    lo, hi, unit = spec["min"], spec["max"], spec["unit"]
+    has_range = lo is not None or hi is not None
+    is_last = step == TOTAL_STEPS - 1
+
+    # 기본 정보 폼과 동일한 테두리 박스 안에 스텝 입력을 배치한다.
+    with st.container(border=True):
+        st.caption(f"**{base['serial']}**  ·  {base['test_date']}  ·  {base['tested_by']}")
+        st.progress(step / TOTAL_STEPS, text=f"{step}/{TOTAL_STEPS} 완료")
+        st.markdown(f"#### {spec['description']}")
+
+        if has_range:
+            lo_txt = "−∞" if lo is None else lo
+            hi_txt = "∞" if hi is None else hi
+            st.caption(f"허용 범위: {lo_txt} ~ {hi_txt} {unit}".rstrip())
+
+        # 입력칸 + '다음'을 폼으로 묶으면 측정값에서 Enter만 눌러도 다음 스텝으로 넘어간다.
+        # (폼에 submit 버튼이 하나면 Enter == 그 버튼 클릭)
+        with st.form("ht_step_form", border=False, clear_on_submit=False):
+            # key를 고정("ht_val")해 스텝이 바뀌어도 위젯이 재생성되지 않게 한다.
+            # (값은 _advance_step/_prev_step 콜백에서 st.session_state.ht_val로 관리)
+            st.text_input(f"측정값 ({unit})" if unit else "측정값", key="ht_val")
+            st.form_submit_button(
+                "저장 완료" if is_last else "다음 →", type="primary",
+                width="stretch", on_click=_advance_step,
+            )
+
+        # 이전 / 취소 — 폼 밖 일반 버튼 (Enter 제출 대상이 아님)
+        col_prev, col_cancel = st.columns(2)
+        with col_prev:
+            if step > 0:
+                st.button("← 이전", width="stretch", on_click=_prev_step)
+        with col_cancel:
+            st.button("취소", width="stretch", on_click=_reset_wizard)
+
+
+# ── 데이터 조회 (Raw Data) ────────────────────────────────
+def render_records() -> None:
     df = load_records(st.user.email, role)
-    label = "전체 데이터" if role == "admin" else "내 데이터"
-    st.subheader(f"{label} ({len(df)}건)")
+    st.subheader(f"Raw Data")
 
-    if not df.empty:
-        col1, col2, col3 = st.columns(3)
-        col1.metric("총 항목 수", len(df))
-        col2.metric("고유 Serial 수", df["serial"].nunique())
-        col3.metric("고유 Test Item 수", df["test_item"].nunique())
-
-        DISPLAY_COLS = [c for c in df.columns if c != "id"]
-        is_editable = role in ("admin", "editor")
-        st.caption("셀을 클릭해서 수정한 뒤 💾 변경사항 저장을 누르세요." if is_editable else "")
-        st.data_editor(
-            df[DISPLAY_COLS],
-            use_container_width=True,
-            num_rows="fixed",
-            disabled=not is_editable,
-            column_config={
-                "serial":       st.column_config.TextColumn("Serial"),
-                "test_date":    st.column_config.TextColumn("Test Date"),
-                "test_by":      st.column_config.TextColumn("Test By"),
-                "test_item":    st.column_config.TextColumn("Test Item"),
-                "measurements": st.column_config.TextColumn("Measurements"),
-                "saved_by":     st.column_config.TextColumn("Saved By",   disabled=True),
-                "created_at":   st.column_config.TextColumn("Created At", disabled=True),
-            },
-            hide_index=False,
-            key="data_editor",
-        )
-
-        if is_editable:
-            col_save, col_del = st.columns([3, 1])
-            with col_save:
-                if st.button("💾 변경사항 저장", type="primary", use_container_width=True):
-                    edited_rows = st.session_state.get("data_editor", {}).get("edited_rows", {})
-                    if not edited_rows:
-                        st.info("수정된 내용이 없습니다.")
-                    else:
-                        updates = []
-                        for row_idx, changes in edited_rows.items():
-                            row_id = int(df.loc[row_idx, "id"])
-                            current = df.loc[row_idx]
-                            updates.append((
-                                row_id,
-                                changes.get("serial",       current["serial"]),
-                                changes.get("test_date",    current["test_date"]),
-                                changes.get("test_by",      current["test_by"]),
-                                changes.get("test_item",    current["test_item"]),
-                                changes.get("measurements", current["measurements"]),
-                            ))
-                        bulk_update_records(updates)
-                        st.success(f"{len(updates)}개 행이 수정되었습니다.")
-                        st.rerun()
-            with col_del:
-                with st.popover("🗑️ 행 삭제", use_container_width=True):
-                    del_idx = st.number_input("삭제할 행 번호", min_value=0,
-                                            max_value=len(df) - 1, step=1)
-                    if st.button("삭제 확인", type="secondary"):
-                        delete_record(int(df.loc[del_idx, "id"]))
-                        st.rerun()
-
-        csv = df[DISPLAY_COLS].to_csv(index=False, encoding="utf-8-sig")
-        st.download_button(
-            label="📥 CSV로 다운로드",
-            data=csv,
-            file_name=f"data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-            mime="text/csv",
-            use_container_width=True,
-        )
-
-        if is_editable and st.button("🗑️ 전체 초기화", type="secondary"):
-            clear_records(st.user.email, role)
-            st.rerun()
-    else:
+    if df.empty:
         st.info("아직 저장된 데이터가 없습니다.")
+        return
 
-with tab_gateDriver:
-    st.subheader("Gate Driver Board")
-    st.info("준비 중입니다.")
-with tab_bypassCapacitor:
-    st.subheader("Bypass Capacitor Board")
-    st.info("준비 중입니다.")
-with tab_tuningCapacitor:
-    st.subheader("Tuning Capacitor Board")
-    st.info("준비 중입니다.")
-with tab_controller:
-    st.subheader("Controller Board")
-    st.info("준비 중입니다.")
+    col1, col2 = st.columns(2)
+    col1.metric("고유 Serial 수", df["serial"].nunique())
+    col2.metric("고유 Test Item 수", df["test_item"].nunique())
+
+    # 조회 전용 — 수정·삭제는 지원하지 않으므로 st.dataframe으로 표시한다.
+    # (헤더는 DB에 저장된 컬럼명 그대로 노출)
+    st.dataframe(df, width="stretch", hide_index=True)
+
+
+# ── 탭 구성 ───────────────────────────────────────────────
+TAB_LABELS = ["H-Bridge B/D", "Gate Driver B/D", "Bypass Capacitor B/D",
+              "Tuning Capacitor B/D", "Controller B/D"]
+tab_hbridge, *other_tabs = st.tabs(TAB_LABELS)
+
+with tab_hbridge:
+    st.subheader(TAB_LABELS[0])
+    if can_edit:
+        render_input_form()
+    else:
+        st.info("조회 전용 계정입니다. 데이터를 추가하려면 관리자에게 권한을 요청하세요.")
+    st.divider()
+    render_records()
+
+for tab, label in zip(other_tabs, TAB_LABELS[1:]):
+    with tab:
+        st.subheader(label)
+        st.info("준비 중입니다.")
