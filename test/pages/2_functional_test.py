@@ -1,5 +1,6 @@
 import streamlit as st
 
+from constants import BOARD_LABELS
 from database import insert_records, load_records
 
 # 위자드 각 스텝 정의 — 순서대로 1~25번 스텝.
@@ -188,7 +189,7 @@ def _render_step_wizard() -> None:
 # ── 데이터 조회 (Raw Data) ────────────────────────────────
 def render_records() -> None:
     df = load_records(st.user.email, role)
-    st.subheader(f"Raw Data")
+    st.subheader("Raw Data")
 
     if df.empty:
         st.info("아직 저장된 데이터가 없습니다.")
@@ -204,12 +205,10 @@ def render_records() -> None:
 
 
 # ── 탭 구성 ───────────────────────────────────────────────
-TAB_LABELS = ["H-Bridge B/D", "Gate Driver B/D", "Bypass Capacitor B/D",
-              "Tuning Capacitor B/D", "Controller B/D"]
-tab_hbridge, *other_tabs = st.tabs(TAB_LABELS)
+tab_hbridge, *other_tabs = st.tabs(BOARD_LABELS)
 
 with tab_hbridge:
-    st.subheader(TAB_LABELS[0])
+    st.subheader(BOARD_LABELS[0])
     if can_edit:
         render_input_form()
     else:
@@ -217,7 +216,7 @@ with tab_hbridge:
     st.divider()
     render_records()
 
-for tab, label in zip(other_tabs, TAB_LABELS[1:]):
+for tab, label in zip(other_tabs, BOARD_LABELS[1:]):
     with tab:
         st.subheader(label)
         st.info("준비 중입니다.")
