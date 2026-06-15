@@ -19,15 +19,15 @@ def _now() -> str:
 def get_conn() -> sqlite3.Connection:
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     conn.execute("""
-        CREATE TABLE IF NOT EXISTS records (
-            id           INTEGER PRIMARY KEY,
-            serial       TEXT    NOT NULL,
-            test_date    TEXT    NOT NULL,
-            test_by      TEXT    NOT NULL,
-            test_item    TEXT    NOT NULL,
-            measurements TEXT,
-            saved_by     TEXT,
-            created_at   TEXT
+        CREATE TABLE IF NOT EXISTS test_results (
+            serial       TEXT NOT NULL,
+            test_item    TEXT NOT NULL,
+            test_date    TEXT NOT NULL,
+            tested_by    TEXT NOT NULL,
+            measurements  TEXT,
+            save_datetime TEXT,
+            saved_by      TEXT,
+            PRIMARY KEY (serial, test_item)
         )
     """)
     conn.execute("""
@@ -40,7 +40,7 @@ def get_conn() -> sqlite3.Connection:
     """)
     # saved_by는 뷰어/편집자 조회 시 필터 조건이므로 인덱스를 둔다.
     # (users.email은 PRIMARY KEY라 자동 인덱스가 생성되어 별도 인덱스가 불필요)
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_records_saved_by ON records(saved_by)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_test_results_saved_by ON test_results(saved_by)")
     conn.commit()
     return conn
 
@@ -81,46 +81,55 @@ def update_role(email: str, role: str):
 @st.cache_data(ttl=60)
 def load_records(user_email: str, role: str) -> pd.DataFrame:
     conn = get_conn()
+    # test_item은 '1'~'25' 문자열이므로 숫자 순으로 정렬한다.
+    order = "ORDER BY serial, CAST(test_item AS INTEGER)"
     if role == "admin":
-        return pd.read_sql("SELECT * FROM records ORDER BY id", conn)
+        return pd.read_sql(f"SELECT * FROM test_results {order}", conn)
     return pd.read_sql(
-        "SELECT * FROM records WHERE saved_by=? ORDER BY id",
+        f"SELECT * FROM test_results WHERE saved_by=? {order}",
         conn, params=(user_email,),
     )
 
 def insert_records(rows: list, user_email: str):
-    """rows: list of (serial, test_date, test_by, test_item, measurements). 한 번에 여러 건 저장."""
+    """rows: list of (serial, test_item, test_date, tested_by, measurements). 한 번에 여러 건 저장.
+    (serial, test_item) 복합키가 겹치면 기존 행을 덮어쓴다(INSERT OR REPLACE)."""
     now = _now()
     conn = get_conn()
     with conn:
         conn.executemany(
-            "INSERT INTO records (serial, test_date, test_by, test_item, measurements, saved_by, created_at)"
+            "INSERT OR REPLACE INTO test_results"
+            " (serial, test_item, test_date, tested_by, measurements, save_datetime, saved_by)"
             " VALUES (?,?,?,?,?,?,?)",
-            [(str(s), str(d), str(b), str(i), str(m), str(user_email), now) for s, d, b, i, m in rows],
+            [(str(s), str(ti), str(d), str(tb), str(m), now, str(user_email))
+             for s, ti, d, tb, m in rows],
         )
     load_records.clear()
 
 def bulk_update_records(updates: list):
-    """updates: list of (row_id, serial, test_date, test_by, test_item, measurements)"""
+    """updates: list of (orig_serial, orig_test_item, serial, test_item, test_date, tested_by, measurements).
+    원래 복합키(orig_serial, orig_test_item)로 행을 찾아 갱신한다."""
     conn = get_conn()
     with conn:
         conn.executemany(
-            "UPDATE records SET serial=?, test_date=?, test_by=?, test_item=?, measurements=? WHERE id=?",
-            [(str(s), str(d), str(b), str(i), str(m), int(rid)) for rid, s, d, b, i, m in updates],
+            "UPDATE test_results SET serial=?, test_item=?, test_date=?, tested_by=?, measurements=?"
+            " WHERE serial=? AND test_item=?",
+            [(str(s), str(ti), str(d), str(tb), str(m), str(o_s), str(o_ti))
+             for o_s, o_ti, s, ti, d, tb, m in updates],
         )
     load_records.clear()
 
-def delete_record(row_id):
+def delete_record(serial, test_item):
     conn = get_conn()
     with conn:
-        conn.execute("DELETE FROM records WHERE id=?", (row_id,))
+        conn.execute("DELETE FROM test_results WHERE serial=? AND test_item=?",
+                     (str(serial), str(test_item)))
     load_records.clear()
 
 def clear_records(user_email: str, role: str):
     conn = get_conn()
     with conn:
         if role == "admin":
-            conn.execute("DELETE FROM records")
+            conn.execute("DELETE FROM test_results")
         else:
-            conn.execute("DELETE FROM records WHERE saved_by=?", (user_email,))
+            conn.execute("DELETE FROM test_results WHERE saved_by=?", (user_email,))
     load_records.clear()
