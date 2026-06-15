@@ -13,6 +13,15 @@ def _now() -> str:
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
+def _meas(m) -> str | None:
+    """측정값을 정규화한다. 미입력(빈 문자열·공백·None)은 빈 문자열이 아니라
+    NULL로 저장한다. (예: 미측정 스텝 → measurements IS NULL)"""
+    if m is None:
+        return None
+    s = str(m).strip()
+    return s if s else None
+
+
 # 커넥션은 직렬화 불가능한 전역 리소스이므로 cache_resource로 1회만 생성한다.
 # https://docs.streamlit.io/develop/concepts/architecture/caching
 @st.cache_resource
@@ -100,7 +109,7 @@ def insert_records(rows: list, user_email: str):
             "INSERT OR REPLACE INTO test_results"
             " (serial, test_item, measurements, test_date, tested_by, save_datetime, saved_by)"
             " VALUES (?,?,?,?,?,?,?)",
-            [(str(s), str(ti), str(m), str(d), str(tb), now, str(user_email))
+            [(str(s), str(ti), _meas(m), str(d), str(tb), now, str(user_email))
              for s, ti, d, tb, m in rows],
         )
     load_records.clear()
@@ -113,7 +122,7 @@ def bulk_update_records(updates: list):
         conn.executemany(
             "UPDATE test_results SET serial=?, test_item=?, test_date=?, tested_by=?, measurements=?"
             " WHERE serial=? AND test_item=?",
-            [(str(s), str(ti), str(d), str(tb), str(m), str(o_s), str(o_ti))
+            [(str(s), str(ti), str(d), str(tb), _meas(m), str(o_s), str(o_ti))
              for o_s, o_ti, s, ti, d, tb, m in updates],
         )
     load_records.clear()
