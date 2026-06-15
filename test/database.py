@@ -20,11 +20,11 @@ def get_conn() -> sqlite3.Connection:
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     conn.execute("""
         CREATE TABLE IF NOT EXISTS test_results (
-            serial       TEXT NOT NULL,
-            test_item    TEXT NOT NULL,
-            test_date    TEXT NOT NULL,
-            tested_by    TEXT NOT NULL,
+            serial        TEXT NOT NULL,
+            test_item     TEXT NOT NULL,
             measurements  TEXT,
+            test_date     TEXT NOT NULL,
+            tested_by     TEXT NOT NULL,
             save_datetime TEXT,
             saved_by      TEXT,
             PRIMARY KEY (serial, test_item)
@@ -98,9 +98,9 @@ def insert_records(rows: list, user_email: str):
     with conn:
         conn.executemany(
             "INSERT OR REPLACE INTO test_results"
-            " (serial, test_item, test_date, tested_by, measurements, save_datetime, saved_by)"
+            " (serial, test_item, measurements, test_date, tested_by, save_datetime, saved_by)"
             " VALUES (?,?,?,?,?,?,?)",
-            [(str(s), str(ti), str(d), str(tb), str(m), now, str(user_email))
+            [(str(s), str(ti), str(m), str(d), str(tb), now, str(user_email))
              for s, ti, d, tb, m in rows],
         )
     load_records.clear()
