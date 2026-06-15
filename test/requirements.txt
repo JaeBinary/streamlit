@@ -3,3 +3,4 @@
 # [auth] extra가 로그인(st.login)에 필요한 Authlib를 함께 설치합니다.
 streamlit[auth]==1.58.0
 pandas==3.0.3
+httpx==0.28.1          # Authlib의 starlette_client가 요구하나 streamlit[auth]가 자동 설치하지 않음
