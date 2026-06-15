@@ -2,6 +2,7 @@ from pathlib import Path
 
 import streamlit as st
 
+from constants import ROLE_LABEL
 from database import get_or_create_user
 
 IMAGES_DIR = Path(__file__).parent / "images"
@@ -29,7 +30,6 @@ if "role" not in st.session_state:
     st.session_state.role = get_or_create_user(st.user.email, st.user.name)
 
 role = st.session_state.role
-ROLE_LABEL = {"admin": "관리자", "editor": "편집자", "viewer": "뷰어"}
 
 # ── 사이드바 ──────────────────────────────────────────────
 with st.sidebar:
