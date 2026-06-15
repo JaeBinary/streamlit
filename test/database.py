@@ -9,8 +9,14 @@ DB_PATH = Path(__file__).parent / "data" / "cg_progress.db"
 DB_PATH.parent.mkdir(exist_ok=True)
 
 
+def _now() -> str:
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+# 커넥션은 직렬화 불가능한 전역 리소스이므로 cache_resource로 1회만 생성한다.
+# https://docs.streamlit.io/develop/concepts/architecture/caching
 @st.cache_resource
-def _init_conn() -> sqlite3.Connection:
+def get_conn() -> sqlite3.Connection:
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     conn.execute("""
         CREATE TABLE IF NOT EXISTS records (
@@ -26,24 +32,17 @@ def _init_conn() -> sqlite3.Connection:
     """)
     conn.execute("""
         CREATE TABLE IF NOT EXISTS users (
-            email                TEXT PRIMARY KEY,
-            name                 TEXT,
-            role                 TEXT NOT NULL DEFAULT 'viewer',
+            email                 TEXT PRIMARY KEY,
+            name                  TEXT,
+            role                  TEXT NOT NULL DEFAULT 'viewer',
             date_first_registered TEXT
         )
     """)
-    try:
-        conn.execute("ALTER TABLE records ADD COLUMN created_at TEXT")
-    except sqlite3.OperationalError:
-        pass
+    # saved_by는 뷰어/편집자 조회 시 필터 조건이므로 인덱스를 둔다.
+    # (users.email은 PRIMARY KEY라 자동 인덱스가 생성되어 별도 인덱스가 불필요)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_records_saved_by ON records(saved_by)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)")
     conn.commit()
     return conn
-
-
-def get_conn() -> sqlite3.Connection:
-    return _init_conn()
 
 
 # ── Users ─────────────────────────────────────────────────
@@ -58,7 +57,7 @@ def get_or_create_user(email: str, name: str) -> str:
         role = "admin" if count == 0 else "viewer"
         conn.execute(
             "INSERT INTO users (email, name, role, date_first_registered) VALUES (?,?,?,?)",
-            (email, name, role, datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
+            (email, name, role, _now()),
         )
         return role
 
@@ -89,14 +88,15 @@ def load_records(user_email: str, role: str) -> pd.DataFrame:
         conn, params=(user_email,),
     )
 
-def insert_record(serial, test_date, test_by, test_item, measurements, user_email):
+def insert_records(rows: list, user_email: str):
+    """rows: list of (serial, test_date, test_by, test_item, measurements). 한 번에 여러 건 저장."""
+    now = _now()
     conn = get_conn()
     with conn:
-        conn.execute(
+        conn.executemany(
             "INSERT INTO records (serial, test_date, test_by, test_item, measurements, saved_by, created_at)"
             " VALUES (?,?,?,?,?,?,?)",
-            (str(serial), str(test_date), str(test_by), str(test_item), str(measurements),
-             str(user_email), datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
+            [(str(s), str(d), str(b), str(i), str(m), str(user_email), now) for s, d, b, i, m in rows],
         )
     load_records.clear()
 
