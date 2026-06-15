@@ -9,9 +9,14 @@
 cd C:\GitHub\streamlit\test
 ```
 
-### 2. 가상환경 구축
+### 2.1. 가상환경 구축
 ```powershell
-py -3.13 -m venv .venv
+py -3.13.14 -m venv .venv
+```
+
+### 2.2. PowerShell 실행 정책 설정 (1회성)
+```powershell
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 ```
 
 ### 3. 가상환경 활성화
