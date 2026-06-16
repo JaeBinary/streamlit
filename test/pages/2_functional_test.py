@@ -24,12 +24,10 @@ class BoardWizard:
       {p}_step   : 현재 스텝 인덱스 (0 ~ total)
       {p}_values : {스텝 인덱스: 측정값}
       {p}_val    : 현재 측정값 입력칸의 값(위젯 key). 스텝마다 콜백에서 갈아끼운다.
-      {p}_done   : 전체 스텝 저장 완료 플래그
     위젯 key도 모두 prefix로 분리해 여러 보드가 동시에 렌더돼도 충돌하지 않는다.
     """
 
-    def __init__(self, label: str, cfg: dict) -> None:
-        self.label = label
+    def __init__(self, cfg: dict) -> None:
         self.prefix = cfg["prefix"]
         self.digits = cfg["digits"]
         self.steps = cfg["steps"]
@@ -40,6 +38,14 @@ class BoardWizard:
     # ── 세션 키 (prefix 네임스페이스) ─────────────────────────
     def _key(self, name: str) -> str:
         return f"{self.prefix}_{name}"
+
+    # 세션 값 읽기/쓰기 헬퍼. st.session_state[self._key(...)] 반복을 줄인다.
+    # (위젯 key 인자는 식별자이므로 _key()를 그대로 쓰고, 여기선 값 접근만 다룬다.)
+    def _get(self, name: str, default=None):
+        return st.session_state.get(self._key(name), default)
+
+    def _set(self, name: str, value) -> None:
+        st.session_state[self._key(name)] = value
 
     # ── Serial 정규화 ─────────────────────────────────────────
     def _normalize_serial(self, raw: str) -> str | None:
@@ -55,11 +61,11 @@ class BoardWizard:
     # 허물어지며 "Missing Submit Button"이 깜빡이는 현상이 사라진다.
     def _advance_step(self) -> None:
         """현재 스텝 값을 저장하고 다음 스텝으로(마지막이면 전체 일괄 저장)."""
-        step = st.session_state[self._key("step")]
-        values = st.session_state[self._key("values")]
-        values[step] = st.session_state[self._key("val")]
+        step = self._get("step")
+        values = self._get("values")
+        values[step] = self._get("val")
         if step >= self.total - 1:
-            base = st.session_state[self._key("base")]
+            base = self._get("base")
             rows = [
                 (base["serial"], i + 1, base["test_date"], base["tested_by"], values[i])
                 for i in range(self.total)
@@ -70,19 +76,20 @@ class BoardWizard:
             # 완료 화면 없이 곧바로 기본 정보(Serial·날짜·담당자) 입력 화면으로 돌아간다.
             self._reset()
         else:
-            st.session_state[self._key("step")] += 1
+            self._set("step", step + 1)
             # 다음 스텝의 저장값(없으면 빈값)으로 입력칸을 갈아끼운다. key가 고정이라
             # 위젯 재생성 없이 값만 바뀌므로 폼이 안정적으로 유지된다.
-            st.session_state[self._key("val")] = values.get(st.session_state[self._key("step")], "")
+            self._set("val", values.get(step + 1, ""))
 
     def _prev_step(self) -> None:
-        if st.session_state[self._key("step")] > 0:
-            st.session_state[self._key("values")][st.session_state[self._key("step")]] = st.session_state[self._key("val")]
-            st.session_state[self._key("step")] -= 1
-            st.session_state[self._key("val")] = st.session_state[self._key("values")].get(st.session_state[self._key("step")], "")
+        step = self._get("step")
+        if step > 0:
+            self._get("values")[step] = self._get("val")
+            self._set("step", step - 1)
+            self._set("val", self._get("values").get(step - 1, ""))
 
     def _reset(self) -> None:
-        for name in ("base", "step", "values", "val", "done"):
+        for name in ("base", "step", "values", "val"):
             st.session_state.pop(self._key(name), None)
         # Serial 입력칸은 비워 다음 테스트를 새 번호로 시작하게 한다.
         # (날짜·담당자는 보통 동일하므로 유지)
@@ -94,13 +101,13 @@ class BoardWizard:
 
     def _start_timer(self, step: int, seconds: float) -> None:
         """'타이머 시작/재시작' 콜백 — deadline을 새로 잡고 완료 플래그를 내린다."""
-        st.session_state[self._key(f"timer_deadline_{step}")] = time.monotonic() + seconds
-        st.session_state[self._key(f"timer_done_{step}")] = False
+        self._set(f"timer_deadline_{step}", time.monotonic() + seconds)
+        self._set(f"timer_done_{step}", False)
 
     # ── 입력 폼 ───────────────────────────────────────────────
     def render_input(self) -> None:
         """① 기본 정보(Serial·날짜·담당자) 확인 → ② 스텝 측정값 입력 → 일괄 저장."""
-        if self._key("base") not in st.session_state:
+        if self._get("base") is None:
             self._render_base_form()
         else:
             self._render_step_wizard()
@@ -135,14 +142,14 @@ class BoardWizard:
             st.toast("이미 테스트를 완료하였습니다.", icon="⚠️")
             return
 
-        st.session_state[self._key("base")] = {
+        self._set("base", {
             "serial": serial_norm,
             "test_date": test_date.isoformat(),
             "tested_by": tested_by.strip(),
-        }
-        st.session_state[self._key("step")] = 0
-        st.session_state[self._key("values")] = {}
-        st.session_state[self._key("val")] = ""
+        })
+        self._set("step", 0)
+        self._set("values", {})
+        self._set("val", "")
         st.rerun()
 
     def _render_timer(self, step: int, seconds: float) -> None:
@@ -178,9 +185,8 @@ class BoardWizard:
                   on_click=self._start_timer, args=(step, seconds))
 
     def _render_step_wizard(self) -> None:
-        base = st.session_state[self._key("base")]
-
-        step = st.session_state[self._key("step")]
+        base = self._get("base")
+        step = self._get("step")
         spec = self.steps[step]
         lo, hi, unit = spec["min"], spec["max"], spec["unit"]
         has_range = lo is not None or hi is not None
@@ -251,7 +257,7 @@ class BoardWizard:
             if ok_col.button(":material/check: 확인", type="primary", width="stretch",
                              key=self._key("del_ok")):
                 delete_serial(serial)
-                st.session_state[self._key("del_msg")] = f"**{serial}** 의 데이터가 삭제되었습니다."
+                self._set("del_msg", f"**{serial}** 의 데이터가 삭제되었습니다.")
                 st.rerun()
             if cancel_col.button(":material/close: 취소", width="stretch", key=self._key("del_cancel")):
                 st.rerun()
@@ -280,7 +286,7 @@ class BoardWizard:
 # ── 탭 구성 ───────────────────────────────────────────────
 # STEPS가 채워진 보드만 위자드를 노출하고, 비어 있으면 "준비 중"으로 표시한다.
 for tab, label in zip(st.tabs(BOARD_LABELS), BOARD_LABELS):
-    wizard = BoardWizard(label, BOARD_CONFIG[label])
+    wizard = BoardWizard(BOARD_CONFIG[label])
     with tab:
         st.subheader(label)
         if not wizard.total:
