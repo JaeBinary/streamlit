@@ -91,7 +91,7 @@ def update_role(email: str, role: str):
 def load_records(user_email: str, role: str) -> pd.DataFrame:
     conn = get_conn()
     # test_item은 '1'~'25' 문자열이므로 숫자 순으로 정렬한다.
-    order = "ORDER BY serial, CAST(test_item AS INTEGER)"
+    order = "ORDER BY CAST(test_item AS INTEGER), serial"
     if role == "admin":
         return pd.read_sql(f"SELECT * FROM test_results {order}", conn)
     return pd.read_sql(
