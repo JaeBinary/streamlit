@@ -114,38 +114,9 @@ def insert_records(rows: list, user_email: str):
         )
     load_records.clear()
 
-def bulk_update_records(updates: list):
-    """updates: list of (orig_serial, orig_test_item, serial, test_item, test_date, tested_by, measurements).
-    원래 복합키(orig_serial, orig_test_item)로 행을 찾아 갱신한다."""
-    conn = get_conn()
-    with conn:
-        conn.executemany(
-            "UPDATE test_results SET serial=?, test_item=?, test_date=?, tested_by=?, measurements=?"
-            " WHERE serial=? AND test_item=?",
-            [(str(s), str(ti), str(d), str(tb), _meas(m), str(o_s), str(o_ti))
-             for o_s, o_ti, s, ti, d, tb, m in updates],
-        )
-    load_records.clear()
-
-def delete_record(serial, test_item):
-    conn = get_conn()
-    with conn:
-        conn.execute("DELETE FROM test_results WHERE serial=? AND test_item=?",
-                     (str(serial), str(test_item)))
-    load_records.clear()
-
 def delete_serial(serial):
     """해당 Serial의 모든 test_item 행을 삭제한다."""
     conn = get_conn()
     with conn:
         conn.execute("DELETE FROM test_results WHERE serial=?", (str(serial),))
-    load_records.clear()
-
-def clear_records(user_email: str, role: str):
-    conn = get_conn()
-    with conn:
-        if role == "admin":
-            conn.execute("DELETE FROM test_results")
-        else:
-            conn.execute("DELETE FROM test_results WHERE saved_by=?", (user_email,))
     load_records.clear()
