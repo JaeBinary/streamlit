@@ -6,11 +6,12 @@
 # CG PCBA 5종 보드 설정. 보드마다 다른 값을 한 곳에서 관리한다.
 #   prefix : Serial 접두사. 보드 구분 기준 — Serial 정규화·조회 필터에 사용.
 #   digits : Serial 숫자 자리수 (예: digits=4 → H0021).
-#   steps  : 기능 테스트 위자드의 측정 스텝 정의.
+#   steps  : 기능 테스트 위자드의 측정 스텝 정의. 빈 리스트면 화면에 "준비 중"으로 표시.
 #     description : 화면에 표시할 문구 (번호는 문구에 직접 포함)
 #     min / max   : 허용 범위. None이면 범위 표시·경고 없음. 범위 밖 값도 저장은 가능.
 #     unit        : 측정 단위 (없으면 "")
-#   min/max/unit은 화면 표시·경고용일 뿐 DB에는 저장되지 않는다.
+#     timer       : (선택) 측정 전 대기 시간(초). 있으면 해당 스텝에 안내용 카운트다운 표시.
+#   위 표시·안내용 값은 DB에 저장되지 않는다.
 #   (DB의 test_item에는 스텝 번호, measurements에는 측정값만 저장된다.)
 BOARD_CONFIG = {
     "H-Bridge B/D": {
@@ -44,7 +45,6 @@ BOARD_CONFIG = {
             {"description": "25. Checking the continuity of J14-1 and J14-2 After R1 and R2 were screwed on their designated footprint", "min": 350, "max": 450, "unit": "Ω"},
         ],
     },
-    # 아래 4종은 Serial 규칙만 확정. STEPS는 추후 채운다(비어 있으면 화면에 "준비 중"으로 표시).
     "Gate Driver B/D": {
         "prefix": "G",
         "digits": 4,
@@ -100,11 +100,11 @@ BOARD_CONFIG = {
         "digits": 4,
         "steps": [
             {"description": "01. Initial Capacitor Voltage", "min": 0, "max": 1, "unit": "V"},
-            {"description": "02. Capacitor Voltage after 1 Time Constant", "min": 13, "max": 17, "unit": "V"},
-            {"description": "03. Capacitor Voltage after 5 Time Constants", "min": 22, "max": 25, "unit": "V"},
-            {"description": "04. Measured Capacitance", "min": 100, "max": 140, "unit": "mF"},
-            {"description": "05. Capacitor Voltage with 15 V disconnected", "min": 19, "max": 25, "unit": "V"},
-            {"description": "06. Capacitor Voltage after charge bleed", "min": 0, "max": 1, "unit": "V"},
+            {"description": "02. Capacitor Voltage after 1 Time Constant", "min": 13, "max": 17, "unit": "V", "timer": 15},
+            {"description": "03. Capacitor Voltage after 5 Time Constants", "min": 22, "max": 25, "unit": "V", "timer": 13.5},
+            {"description": "04. Measured Capacitance", "min": 100, "max": 140, "unit": "mF", "timer": 67.5},
+            {"description": "05. Capacitor Voltage with 15 V disconnected", "min": 19, "max": 25, "unit": "V", "timer": 5},
+            {"description": "06. Capacitor Voltage after charge bleed", "min": 0, "max": 1, "unit": "V", "timer": 60},
         ],
     },
     "Tuning Capacitor B/D": {
