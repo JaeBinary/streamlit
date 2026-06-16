@@ -78,10 +78,11 @@ def load_users() -> pd.DataFrame:
         conn,
     )
 
-def update_role(email: str, role: str):
+def update_user(email: str, name: str, role: str):
+    """email(PK)로 사용자를 찾아 name·role을 갱신한다. (관리자 화면 인라인 편집용)"""
     conn = get_conn()
     with conn:
-        conn.execute("UPDATE users SET role=? WHERE email=?", (role, email))
+        conn.execute("UPDATE users SET name=?, role=? WHERE email=?", (name, role, email))
     load_users.clear()
 
 
