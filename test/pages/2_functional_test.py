@@ -1,7 +1,13 @@
+import time
+
 import streamlit as st
 
 from constants import BOARD_CONFIG, BOARD_LABELS
-from database import insert_records, load_records
+from database import delete_serial, insert_records, load_records
+
+# 타이머 진행바 갱신 주기(초). 작을수록 부드럽지만 fragment 재실행이 잦아진다.
+# 재실행 왕복 한계로 실질 하한은 ~0.1s (그보다 작으면 오히려 끊긴다).
+TIMER_REFRESH_SEC = 0.1
 
 role = st.session_state.get("role", "viewer")
 can_edit = role in ("admin", "editor")
@@ -59,7 +65,10 @@ class BoardWizard:
                 for i in range(self.total)
             ]
             insert_records(rows, st.user.email)
-            st.session_state[self._key("done")] = True
+            # 저장 알림은 토스트로(자동 사라짐). 콜백에서 호출해도 재실행 후 표시된다.
+            st.toast(f"**{base['serial']}** 의 데이터가 저장되었습니다.", icon="💾")
+            # 완료 화면 없이 곧바로 기본 정보(Serial·날짜·담당자) 입력 화면으로 돌아간다.
+            self._reset()
         else:
             st.session_state[self._key("step")] += 1
             # 다음 스텝의 저장값(없으면 빈값)으로 입력칸을 갈아끼운다. key가 고정이라
@@ -75,6 +84,18 @@ class BoardWizard:
     def _reset(self) -> None:
         for name in ("base", "step", "values", "val", "done"):
             st.session_state.pop(self._key(name), None)
+        # Serial 입력칸은 비워 다음 테스트를 새 번호로 시작하게 한다.
+        # (날짜·담당자는 보통 동일하므로 유지)
+        st.session_state.pop(self._key("in_serial"), None)
+        # 스텝별 타이머 상태도 함께 초기화 (재진입 시 처음부터)
+        for i in range(self.total):
+            st.session_state.pop(self._key(f"timer_deadline_{i}"), None)
+            st.session_state.pop(self._key(f"timer_done_{i}"), None)
+
+    def _start_timer(self, step: int, seconds: float) -> None:
+        """'타이머 시작/재시작' 콜백 — deadline을 새로 잡고 완료 플래그를 내린다."""
+        st.session_state[self._key(f"timer_deadline_{step}")] = time.monotonic() + seconds
+        st.session_state[self._key(f"timer_done_{step}")] = False
 
     # ── 입력 폼 ───────────────────────────────────────────────
     def render_input(self) -> None:
@@ -108,6 +129,12 @@ class BoardWizard:
             st.error("테스트 담당자는 필수 항목입니다.")
             return
 
+        # 이미 테스트된 Serial이면 경고하고 진입을 막는다(중복 저장 방지).
+        existing = load_records(st.user.email, role)["serial"]
+        if serial_norm in set(existing):
+            st.toast("이미 테스트를 완료하였습니다.", icon="⚠️")
+            return
+
         st.session_state[self._key("base")] = {
             "serial": serial_norm,
             "test_date": test_date.isoformat(),
@@ -118,14 +145,40 @@ class BoardWizard:
         st.session_state[self._key("val")] = ""
         st.rerun()
 
+    def _render_timer(self, step: int, seconds: float) -> None:
+        """측정 전 대기를 돕는 안내용 카운트다운. '타이머 시작' 클릭 시 시작하며
+        입력·진행을 막지 않는다. run_every를 미리 계산해 0이 되면 None으로 멈춘다.
+        https://docs.streamlit.io/develop/api-reference/execution-flow/st.fragment"""
+        deadline_key = self._key(f"timer_deadline_{step}")
+        done_key = self._key(f"timer_done_{step}")
+        started = deadline_key in st.session_state
+
+        if started:
+            running = not st.session_state.get(done_key)
+
+            @st.fragment(run_every=TIMER_REFRESH_SEC if running else None)  # 완료 시 None → 자동 정지
+            def _tick() -> None:
+                if st.session_state.get(done_key):
+                    st.success(f":material/timer: {seconds}초 대기 완료")
+                    return
+                remaining = st.session_state[deadline_key] - time.monotonic()
+                if remaining <= 0:
+                    st.session_state[done_key] = True
+                    st.rerun()  # 전체 rerun → run_every=None으로 재데코레이트되어 멈춤
+                st.progress(
+                    max(0.0, min(1.0, 1 - remaining / seconds)),
+                    text=f":material/timer: 남은 시간 {int(remaining) + 1}초",
+                )
+
+            _tick()
+
+        # 상태만 바꾸는 버튼이므로 인라인 st.rerun() 대신 on_click 콜백을 쓴다(파일 공통 규칙).
+        label = "타이머 재시작" if started else f":material/timer: 타이머 시작 ({seconds}초)"
+        st.button(label, key=self._key(f"timer_btn_{step}"), width="stretch",
+                  on_click=self._start_timer, args=(step, seconds))
+
     def _render_step_wizard(self) -> None:
         base = st.session_state[self._key("base")]
-
-        # 저장 완료 화면
-        if st.session_state.get(self._key("done")):
-            st.success(f"✅ **{base['serial']}** / {self.total}개 스텝이 저장되었습니다!")
-            st.button("➕ 새 항목 추가", type="primary", on_click=self._reset, key=self._key("new"))
-            return
 
         step = st.session_state[self._key("step")]
         spec = self.steps[step]
@@ -144,6 +197,10 @@ class BoardWizard:
                 hi_txt = "∞" if hi is None else hi
                 st.caption(f"허용 범위: {lo_txt} ~ {hi_txt} {unit}".rstrip())
 
+            # 측정 전 대기 시간이 정의된 스텝에만 카운트다운 표시 (안내용 · 폼 밖)
+            if spec.get("timer"):
+                self._render_timer(step, spec["timer"])
+
             # 입력칸 + '다음'을 폼으로 묶으면 측정값에서 Enter만 눌러도 다음 스텝으로 넘어간다.
             # (폼에 submit 버튼이 하나면 Enter == 그 버튼 클릭)
             with st.form(self._key("step_form"), border=False, clear_on_submit=False):
@@ -151,7 +208,7 @@ class BoardWizard:
                 # (값은 _advance_step/_prev_step 콜백에서 세션 상태로 관리)
                 st.text_input(f"측정값 ({unit})" if unit else "측정값", key=self._key("val"))
                 st.form_submit_button(
-                    "저장 완료" if is_last else "다음 →", type="primary",
+                    "저장" if is_last else "다음 →", type="primary",
                     width="stretch", on_click=self._advance_step,
                 )
 
@@ -180,9 +237,44 @@ class BoardWizard:
         col1.metric("고유 Serial 수", df["serial"].nunique())
         col2.metric("고유 Test Item 수", df["test_item"].nunique())
 
-        # 조회 전용 — 수정·삭제는 지원하지 않으므로 st.dataframe으로 표시한다.
-        # (헤더는 DB에 저장된 컬럼명 그대로 노출)
-        st.dataframe(df, width="stretch", hide_index=True)
+        # ── Serial 필터 (모든 권한 공용) ──────────────────────────
+        # '전체' 선택 시 필터 해제, 특정 Serial 선택 시 그 Serial 행만 표시한다.
+        ALL = "전체"
+        options = [ALL] + df["serial"].unique().tolist()
+
+        # 삭제 확인은 Modal Dialog로 받는다. 다이얼로그 안에서 st.rerun()을 호출하면
+        # 다이얼로그가 닫히며 페이지가 재실행된다(취소 = 변경 없이 닫기).
+        @st.dialog("데이터 삭제 확인")
+        def _confirm_delete(serial: str) -> None:
+            st.markdown(f"**{serial}** 의 모든 데이터를 삭제합니다.")
+            ok_col, cancel_col = st.columns(2)
+            if ok_col.button(":material/check: 확인", type="primary", width="stretch",
+                             key=self._key("del_ok")):
+                delete_serial(serial)
+                st.session_state[self._key("del_msg")] = f"**{serial}** 의 데이터가 삭제되었습니다."
+                st.rerun()
+            if cancel_col.button(":material/close: 취소", width="stretch", key=self._key("del_cancel")):
+                st.rerun()
+
+        # 직전 실행에서 삭제가 완료됐다면 다이얼로그가 닫힌 뒤 토스트로 알린다.
+        msg = st.session_state.pop(self._key("del_msg"), None)
+        if msg:
+            st.toast(msg, icon="🗑️")
+
+        if role == "admin":
+            # 관리자만 선택한 Serial을 삭제할 수 있다. (우측 삭제 버튼)
+            # vertical_alignment="bottom" 으로 selectbox(라벨 포함)와 버튼 하단을 맞춘다.
+            sel_col, btn_col = st.columns([3, 1], vertical_alignment="bottom")
+            selected = sel_col.selectbox("Serial 번호 선택", options, key=self._key("filter_serial"))
+            if btn_col.button(":material/delete: 삭제", type="primary", width="stretch",
+                              disabled=selected == ALL, key=self._key("del_btn")):
+                _confirm_delete(selected)
+        else:
+            selected = st.selectbox("Serial 번호 선택", options, key=self._key("filter_serial"))
+
+        # 선택된 Serial로 테이블을 필터링한다. (조회 전용 — st.dataframe)
+        view = df if selected == ALL else df[df["serial"] == selected]
+        st.dataframe(view, width="stretch", hide_index=True)
 
 
 # ── 탭 구성 ───────────────────────────────────────────────
