@@ -134,6 +134,13 @@ def delete_record(serial, test_item):
                      (str(serial), str(test_item)))
     load_records.clear()
 
+def delete_serial(serial):
+    """해당 Serial의 모든 test_item 행을 삭제한다."""
+    conn = get_conn()
+    with conn:
+        conn.execute("DELETE FROM test_results WHERE serial=?", (str(serial),))
+    load_records.clear()
+
 def clear_records(user_email: str, role: str):
     conn = get_conn()
     with conn:
