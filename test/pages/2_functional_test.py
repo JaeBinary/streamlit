@@ -180,7 +180,7 @@ class BoardWizard:
             _tick()
 
         # 상태만 바꾸는 버튼이므로 인라인 st.rerun() 대신 on_click 콜백을 쓴다(파일 공통 규칙).
-        label = "타이머 재시작" if started else f":material/timer: 타이머 시작 ({seconds}초)"
+        label = ":material/refresh: 타이머 재시작" if started else f":material/timer: 타이머 시작 ({seconds}초)"
         st.button(label, key=self._key(f"timer_btn_{step}"), width="stretch",
                   on_click=self._start_timer, args=(step, seconds))
 
@@ -194,7 +194,11 @@ class BoardWizard:
 
         # 기본 정보 폼과 동일한 테두리 박스 안에 스텝 입력을 배치한다.
         with st.container(border=True):
-            st.caption(f"**{base['serial']}**  ·  {base['test_date']}  ·  {base['tested_by']}")
+            # 캡션(좌) + 취소 버튼(우상단). 취소는 상태만 되돌리므로 폼 밖 일반 버튼.
+            info_col, cancel_col = st.columns([4, 1], vertical_alignment="center")
+            info_col.caption(f"**{base['serial']}**  ·  {base['test_date']}  ·  {base['tested_by']}")
+            cancel_col.button(":material/close: 취소", width="stretch",
+                              on_click=self._reset, key=self._key("cancel"))
             st.progress(step / self.total, text=f"{step}/{self.total} 완료")
             st.markdown(f"#### {spec['description']}")
 
@@ -207,24 +211,24 @@ class BoardWizard:
             if spec.get("timer"):
                 self._render_timer(step, spec["timer"])
 
-            # 입력칸 + '다음'을 폼으로 묶으면 측정값에서 Enter만 눌러도 다음 스텝으로 넘어간다.
-            # (폼에 submit 버튼이 하나면 Enter == 그 버튼 클릭)
-            with st.form(self._key("step_form"), border=False, clear_on_submit=False):
-                # key를 고정("{p}_val")해 스텝이 바뀌어도 위젯이 재생성되지 않게 한다.
-                # (값은 _advance_step/_prev_step 콜백에서 세션 상태로 관리)
-                st.text_input(f"측정값 ({unit})" if unit else "측정값", key=self._key("val"))
-                st.form_submit_button(
-                    "저장" if is_last else "다음 →", type="primary",
-                    width="stretch", on_click=self._advance_step,
-                )
+            # Enter 제출이 필요 없으므로 폼 대신 일반 입력칸 + 버튼을 쓴다(기본 정보 폼과 동일 패턴).
+            # 폼의 Enter는 '레이아웃상 가장 왼쪽' submit 버튼만 눌러 '다음'(우측)에 걸 수 없고,
+            # 불필요한 폼은 "Missing Submit Button" 깜빡임의 원인이 되기 때문이다.
+            # key를 고정("{p}_val")해 스텝이 바뀌어도 위젯이 재생성되지 않게 한다.
+            # (값은 _advance_step/_prev_step 콜백에서 세션 상태로 관리)
+            st.text_input(f"측정값 ({unit})" if unit else "측정값", key=self._key("val"))
 
-            # 이전 / 취소 — 폼 밖 일반 버튼 (Enter 제출 대상이 아님)
-            col_prev, col_cancel = st.columns(2)
-            with col_prev:
-                if step > 0:
-                    st.button("← 이전", width="stretch", on_click=self._prev_step, key=self._key("prev"))
-            with col_cancel:
-                st.button("취소", width="stretch", on_click=self._reset, key=self._key("cancel"))
+            next_label = ":material/save: 저장" if is_last else ":material/arrow_forward: 다음"
+            if step > 0:
+                col_prev, col_next = st.columns(2)
+                col_prev.button(":material/arrow_back: 이전", width="stretch",
+                                on_click=self._prev_step, key=self._key("prev"))
+                col_next.button(next_label, type="primary", width="stretch",
+                                on_click=self._advance_step, key=self._key("next"))
+            else:
+                # 첫 스텝: 이전 없음 → 다음만 1열(full-width)
+                st.button(next_label, type="primary", width="stretch",
+                          on_click=self._advance_step, key=self._key("next"))
 
     # ── 데이터 조회 (Raw Data) ────────────────────────────────
     def render_records(self) -> None:
