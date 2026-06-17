@@ -196,10 +196,17 @@ class BoardWizard:
         # 기본 정보 폼과 동일한 테두리 박스 안에 스텝 입력을 배치한다.
         with st.container(border=True):
             # 캡션(좌) + 취소 버튼(우상단). 취소는 상태만 되돌리므로 폼 밖 일반 버튼.
-            info_col, cancel_col = st.columns([4, 1], vertical_alignment="center")
+            # 아이콘만 남긴 tertiary 버튼 — 테두리·배경 없이 작게 표시한다(공식 type 옵션).
+            # width 미지정이면 아이콘 크기로 줄어든다. 버튼은 컬럼 안에서 기본 좌측 정렬이라
+            # 키 있는 컨테이너를 align-items:flex-end로 두어 컬럼 우측 끝에 붙인다(파일 공통 CSS 방식).
+            # 텍스트가 없으므로 help 툴팁으로 동작을 안내한다.
+            info_col, cancel_col = st.columns([9, 1], vertical_alignment="center")
             info_col.caption(f"**{base['serial']}**  ·  {base['test_date']}  ·  {base['tested_by']}")
-            cancel_col.button(":material/close: 취소", width="stretch",
-                              on_click=self._reset, key=self._key("cancel"))
+            cancel_key = self._key("cancel_box")
+            with cancel_col.container(key=cancel_key):
+                st.button(":material/close:", type="tertiary", help="취소",
+                          on_click=self._reset, key=self._key("cancel"))
+            st.html(f"<style>.st-key-{cancel_key}{{align-items:flex-end}}</style>")
             st.progress(step / self.total, text=f"{step}/{self.total} 완료")
             st.markdown(f"#### {spec['description']}")
 
