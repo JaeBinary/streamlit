@@ -113,16 +113,17 @@ class BoardWizard:
             self._render_step_wizard()
 
     def _render_base_form(self) -> None:
-        # 폼 대신 컨테이너 + 일반 버튼 사용. 이 화면은 Enter 제출이 필요 없고,
-        # 폼이면 페이지 첫 렌더 때 submit 버튼이 한 프레임 늦게 도착해
-        # "Missing Submit Button"이 깜빡이기 때문이다. (측정값 스텝만 폼 유지)
-        with st.container(border=True):
+        # Serial 등 입력칸에서 Enter → '확인'으로 제출되게 폼으로 묶는다(폼의 enter_to_submit이
+        # 커서가 있어도 Enter를 잡아주는 유일한 방법). submit 버튼이 '확인' 하나뿐이라 Enter는
+        # 확인으로 간다. (과거 "Missing Submit Button" 깜빡임은 config.toml의 fastReruns=false로 방지)
+        with st.form(self._key("base_form"), border=True, clear_on_submit=False):
             col1, col2, col3 = st.columns(3)
             serial = col1.text_input("Serial 번호", placeholder=f"예시: 21 or {self.example}",
                                      key=self._key("in_serial"))
             test_date = col2.date_input("날짜", key=self._key("in_date"))
             tested_by = col3.text_input("진행자", value=st.user.name, key=self._key("in_by"))
-            confirmed = st.button("확인", type="primary", width="stretch", key=self._key("confirm"))
+            confirmed = st.form_submit_button("확인", type="primary", width="stretch",
+                                              key=self._key("confirm"))
 
         if not confirmed:
             return
@@ -211,24 +212,33 @@ class BoardWizard:
             if spec.get("timer"):
                 self._render_timer(step, spec["timer"])
 
-            # Enter 제출이 필요 없으므로 폼 대신 일반 입력칸 + 버튼을 쓴다(기본 정보 폼과 동일 패턴).
-            # 폼의 Enter는 '레이아웃상 가장 왼쪽' submit 버튼만 눌러 '다음'(우측)에 걸 수 없고,
-            # 불필요한 폼은 "Missing Submit Button" 깜빡임의 원인이 되기 때문이다.
-            # key를 고정("{p}_val")해 스텝이 바뀌어도 위젯이 재생성되지 않게 한다.
-            # (값은 _advance_step/_prev_step 콜백에서 세션 상태로 관리)
-            st.text_input(f"측정값 ({unit})" if unit else "측정값", key=self._key("val"))
+            # 측정값 입력칸에서 Enter → 다음으로 넘기려면 폼으로 묶어야 한다(폼의 enter_to_submit이
+            # 커서가 있어도 Enter를 잡아주는 유일한 방법). 단 Enter는 '레이아웃상 가장 왼쪽'
+            # submit 버튼을 누르므로, DOM에서는 '다음'을 왼쪽(col_next)에 두어 Enter 대상으로
+            # 잡고, 화면에는 이전(좌)/다음(우)로 보이도록 아래 CSS(row-reverse)로 열 순서만
+            # 뒤집는다. enter_to_submit은 서버측 요소 순서로 계산돼 CSS 반전의 영향을 받지 않는다.
+            with st.form(self._key("step_form"), border=False, clear_on_submit=False):
+                # key를 고정("{p}_val")해 스텝이 바뀌어도 위젯이 재생성되지 않게 한다.
+                # (값은 _advance_step/_prev_step 콜백에서 세션 상태로 관리)
+                st.text_input(f"측정값 ({unit})" if unit else "측정값", key=self._key("val"))
 
-            next_label = ":material/save: 저장" if is_last else ":material/arrow_forward: 다음"
-            if step > 0:
-                col_prev, col_next = st.columns(2)
-                col_prev.button(":material/arrow_back: 이전", width="stretch",
-                                on_click=self._prev_step, key=self._key("prev"))
-                col_next.button(next_label, type="primary", width="stretch",
-                                on_click=self._advance_step, key=self._key("next"))
-            else:
-                # 첫 스텝: 이전 없음 → 다음만 1열(full-width)
-                st.button(next_label, type="primary", width="stretch",
-                          on_click=self._advance_step, key=self._key("next"))
+                next_label = ":material/save: 저장" if is_last else "다음 :material/arrow_forward:"
+                if step > 0:
+                    # st.container(key=...)는 'st-key-{key}' CSS 클래스를 만든다. 이 클래스로
+                    # 이 행의 열 순서만 row-reverse 해 표시 순서(이전 좌/다음 우)를 맞춘다.
+                    nav_key = self._key("nav")
+                    with st.container(key=nav_key):
+                        col_next, col_prev = st.columns(2)  # DOM: 다음(좌=Enter 대상) → 이전
+                        col_next.form_submit_button(next_label, type="primary", width="stretch",
+                                                    on_click=self._advance_step)
+                        col_prev.form_submit_button(":material/arrow_back: 이전",
+                                                    width="stretch", on_click=self._prev_step)
+                    st.html(f"<style>.st-key-{nav_key} "
+                            f'[data-testid="stHorizontalBlock"]{{flex-direction:row-reverse}}</style>')
+                else:
+                    # 첫 스텝: 이전 없음 → 다음만 1열(full-width). 단독이라 Enter도 자연히 다음.
+                    st.form_submit_button(next_label, type="primary", width="stretch",
+                                          on_click=self._advance_step)
 
     # ── 데이터 조회 (Raw Data) ────────────────────────────────
     def render_records(self) -> None:
