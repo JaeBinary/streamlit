@@ -120,8 +120,8 @@ class BoardWizard:
             col1, col2, col3 = st.columns(3)
             serial = col1.text_input("Serial 번호", placeholder=f"예시: 21 or {self.example}",
                                      key=self._key("in_serial"))
-            test_date = col2.date_input("테스트 날짜", key=self._key("in_date"))
-            tested_by = col3.text_input("테스트 담당자", value=st.user.name, key=self._key("in_by"))
+            test_date = col2.date_input("날짜", key=self._key("in_date"))
+            tested_by = col3.text_input("진행자", value=st.user.name, key=self._key("in_by"))
             confirmed = st.button("확인", type="primary", width="stretch", key=self._key("confirm"))
 
         if not confirmed:
