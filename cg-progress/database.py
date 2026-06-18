@@ -39,16 +39,20 @@ def get_conn() -> sqlite3.Connection:
             PRIMARY KEY (serial, test_item)
         )
     """)
+    # oid: Entra(Azure AD) 사용자 객체 ID. 테넌트 내 불변·재사용 불가라 데이터 저장 키로 적합하다.
+    # (email·name은 변경 가능하므로 키로 쓰지 않는다 — Microsoft 문서 권장)
+    # https://learn.microsoft.com/en-us/entra/identity-platform/id-token-claims-reference
     conn.execute("""
         CREATE TABLE IF NOT EXISTS users (
-            email                 TEXT PRIMARY KEY,
+            oid                   TEXT PRIMARY KEY,
+            email                 TEXT,
             name                  TEXT,
             role                  TEXT NOT NULL DEFAULT 'viewer',
             date_first_registered TEXT
         )
     """)
     # verify_by IS NULL(검수 중) 조회를 돕도록 인덱스를 둔다.
-    # (users.email은 PRIMARY KEY라 자동 인덱스가 생성되어 별도 인덱스가 불필요)
+    # (users.oid는 PRIMARY KEY라 자동 인덱스가 생성된다. email 조회는 사용자 수가 적어 인덱스 불필요)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_test_results_verify_by ON test_results(verify_by)")
     conn.commit()
     return conn
@@ -56,17 +60,31 @@ def get_conn() -> sqlite3.Connection:
 
 # ── Users ─────────────────────────────────────────────────
 
-def get_or_create_user(email: str, name: str) -> str:
+def get_or_create_user(oid: str, email: str, name: str) -> str:
+    """oid(PK)로 사용자를 식별해 role을 반환한다. 없으면 생성한다.
+    oid가 비어 있던 레거시 행(email만 있던 기존 사용자)은 첫 로그인 시 oid를 채워 재사용한다."""
     conn = get_conn()
     with conn:
-        row = conn.execute("SELECT role FROM users WHERE email=?", (email,)).fetchone()
+        # 1) oid로 우선 조회 (정상 경로).
+        row = conn.execute("SELECT role FROM users WHERE oid=?", (oid,)).fetchone()
         if row:
             return row[0]
+        # 2) 레거시 행 흡수: oid가 NULL이던 동일 email 행이 있으면 oid를 채워 재사용(중복 생성 방지).
+        legacy = conn.execute(
+            "SELECT role FROM users WHERE oid IS NULL AND email=?", (email,)
+        ).fetchone()
+        if legacy:
+            conn.execute(
+                "UPDATE users SET oid=?, name=? WHERE oid IS NULL AND email=?",
+                (oid, name, email),
+            )
+            return legacy[0]
+        # 3) 신규 사용자: 첫 사용자 → admin, 이후 → viewer.
         count = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
         role = "admin" if count == 0 else "viewer"
         conn.execute(
-            "INSERT INTO users (email, name, role, date_first_registered) VALUES (?,?,?,?)",
-            (email, name, role, _now()),
+            "INSERT INTO users (oid, email, name, role, date_first_registered) VALUES (?,?,?,?,?)",
+            (oid, email, name, role, _now()),
         )
         return role
 
@@ -79,7 +97,8 @@ def load_users() -> pd.DataFrame:
     )
 
 def update_user(email: str, name: str, role: str):
-    """email(PK)로 사용자를 찾아 name·role을 갱신한다. (관리자 화면 인라인 편집용)"""
+    """email로 사용자를 찾아 name·role을 갱신한다. (관리자 화면 인라인 편집용)
+    PK는 oid이지만 email도 사용자별 고유하므로 편집 키로 그대로 사용한다."""
     conn = get_conn()
     with conn:
         conn.execute("UPDATE users SET name=?, role=? WHERE email=?", (name, role, email))
