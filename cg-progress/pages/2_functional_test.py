@@ -267,14 +267,14 @@ class BoardWizard:
             next_label = ":material/save: 저장" if is_last else "다음 :material/arrow_forward:"
             nav_key, val_key = self._key("nav"), self._key("val")
             next_key, prev_key = self._key("submit_next"), self._key("submit_prev")
-            # 폼 안에는 제출 버튼을 '다음/저장' 하나만 둔다. 폼에 제출 버튼이 2개면 Enter가
-            # 마지막 스텝에서 라벨이 '저장'으로 바뀔 때 '이전'으로 틀어진다(실측 확인). 그래서
-            # '이전'은 폼 밖 일반 버튼으로 분리하고, 좌우 배치는 폼 래퍼를 display:contents로
-            # 평탄화해 입력칸·다음·이전을 nav 컨테이너의 flex 자식으로 만든 뒤 order로 맞춘다.
-            # (st.columns로는 폼 경계를 넘는 좌우 배치가 안 되므로 이 방식이 필요하다.)
-            # https://docs.streamlit.io/develop/api-reference/execution-flow/st.form
+            # 폼 안에는 제출 버튼을 '다음/저장' 하나만 둔다(폼 enter_to_submit이 커서 위치와
+            # 무관하게 Enter를 잡아준다 — 일반 버튼 shortcut은 입력칸 포커스 중엔 안 잡힘, 실측).
+            # 폼 key에 step을 포함해 스텝 이동마다 폼을 remount → 제출 안 된 입력 버퍼가 폐기되어
+            # 스텝 간 값 누수가 차단된다(고정 key 폼에선 버퍼가 잔류하다 다른 스텝 제출 때 누수됨).
+            # '이전'은 폼 밖 일반 버튼으로 분리(2개면 Enter가 라벨 변경 시 틀어짐). 좌우 배치는
+            # 폼 래퍼를 display:contents로 평탄화해 입력칸·다음·이전을 flex 자식으로 만든 뒤 order로.
             with st.container(key=nav_key):
-                with st.form(self._key("step_form"), border=False, clear_on_submit=False):
+                with st.form(self._key(f"step_form_{step}"), border=False, clear_on_submit=False):
                     # key 고정("{p}_val")으로 스텝이 바뀌어도 위젯 재생성 없음(값은 콜백이 관리).
                     st.text_input(f"측정값 ({unit})" if unit else "측정값", key=val_key)
                     st.form_submit_button(next_label, type="primary", width="stretch",
