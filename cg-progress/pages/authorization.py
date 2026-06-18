@@ -10,6 +10,7 @@ if role != "admin":
     st.stop()
 
 st.title("Authorization")
+st.caption('사용자의 "권한 관리" 진행합니다.')
 
 EDITOR_KEY = "users_editor"
 users_df = load_users()
