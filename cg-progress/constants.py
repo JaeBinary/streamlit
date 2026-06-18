@@ -126,8 +126,12 @@ BOARD_CONFIG = {
 # 보드 라벨은 설정에서 자동 파생한다 — 목록을 두 곳에 두지 않아 누락을 막는다(단일 출처).
 BOARD_LABELS = list(BOARD_CONFIG)
 
-# 사용자 역할 표시 라벨 — 사이드바·관리자 화면에서 공용으로 사용한다.
-ROLE_LABEL = {"admin": "🔴 관리자", "editor": "🟡 편집자", "viewer": "🟢 뷰어"}
+# 사용자 역할 → 한국어 라벨. 사이드바 표시·관리자 셀렉트 옵션의 단일 출처.
+ROLE_LABEL = {"admin": "관리자", "editor": "편집자", "viewer": "뷰어"}
+# 역할 → 배지 색상. 팝오버 안 권한 배지에 사용(st.badge 지원 색상).
+ROLE_COLOR = {"admin": "red", "editor": "orange", "viewer": "green"}
+# 역할 → 사이드바 팝오버 트리거 아이콘(Material Symbols). icon 파라미터에 그대로 전달.
+ROLE_ICON = {"admin": ":material/manage_accounts:", "editor": ":material/person_edit:", "viewer": ":material/person:"}
 
 
 def board_by_prefix(serial: str) -> dict | None:
