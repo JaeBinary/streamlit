@@ -15,7 +15,7 @@
 cd C:\GitHub\streamlit\cg-progress
 ```
 
-### 2.1. 가상환경 구축
+### 2.1. 가상환경 구축 (Python: 3.13.14)
 ```powershell
 py -3.13 -m venv .venv
 ```
