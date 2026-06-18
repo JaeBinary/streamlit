@@ -41,14 +41,23 @@ with st.sidebar:
     st.button("로그아웃", on_click=st.logout, width="stretch")
 
 # ── 네비게이션 ────────────────────────────────────────────
-pages = [
-    st.Page("pages/1_main.py",              title="전체 진척도",  icon=":material/bar_chart_4_bars:",      default=True),
-    st.Page("pages/2_functional_test.py",   title="기능 테스트",  icon=":material/developer_board:"),
-    st.Page("pages/3_conformal_coating.py", title="컨포멀 코팅",  icon=":material/fragrance:"),
-]
+# st.navigation에 dict를 넘기면 키가 사이드바의 섹션 머리글이 되어 페이지가 그룹으로 묶인다.
+# https://docs.streamlit.io/develop/api-reference/navigation/st.navigation
+pages = {
+    # 빈 문자열 키는 머리글 없이 렌더링되어 "전체 진척도"가 최상단에 독립 표시된다.
+    "": [
+        st.Page("pages/1_main.py",              title="전체 진척도",  icon=":material/bar_chart_4_bars:",      default=True),
+        st.Page("pages/2_functional_test.py",   title="기능 테스트",  icon=":material/developer_board:"),
+        st.Page("pages/3_conformal_coating.py", title="컨포멀 코팅",  icon=":material/fragrance:"),
+    ],
+}
 
+# 관리자 전용 그룹: admin일 때만 "관리자" 섹션을 통째로 추가해 두 페이지를 함께 노출한다.
 if role == "admin":
-    pages.append(st.Page("pages/admin.py", title="사용자 관리", icon=":material/manage_accounts:"))
+    pages["관리자"] = [
+        st.Page("pages/authorization.py", title="사용자 권한", icon=":material/manage_accounts:"),
+        st.Page("pages/verification.py",  title="검수 리스트", icon=":material/verified:"),
+    ]
 
 pg = st.navigation(pages)
 
