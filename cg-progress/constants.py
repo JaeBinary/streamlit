@@ -128,3 +128,38 @@ BOARD_LABELS = list(BOARD_CONFIG)
 
 # 사용자 역할 표시 라벨 — 사이드바·관리자 화면에서 공용으로 사용한다.
 ROLE_LABEL = {"admin": "🔴 관리자", "editor": "🟡 편집자", "viewer": "🟢 뷰어"}
+
+
+def board_by_prefix(serial: str) -> dict | None:
+    """Serial 접두사로 해당 보드 설정을 찾는다(예: 'T0001' → Tuning Capacitor). 없으면 None."""
+    for cfg in BOARD_CONFIG.values():
+        if serial.startswith(cfg["prefix"]):
+            return cfg
+    return None
+
+
+def measurement_verdict(spec: dict, raw: object) -> str:
+    """측정값이 허용 범위 안인지 판정 — 입력 확인·검수 화면에서 공용으로 쓴다.
+    범위 밖 값도 저장은 허용하므로 차단용이 아니라 확인 보조용이다."""
+    lo, hi = spec["min"], spec["max"]
+    if lo is None and hi is None:
+        return "—"
+    try:
+        v = float(raw)
+    except (TypeError, ValueError):
+        return "❓ Invalid data"
+    if (lo is not None and v < lo) or (hi is not None and v > hi):
+        return "⚠️ Fail"
+    return "✅ Pass"
+
+
+def summary_records(steps: list[dict], values: dict[int, object]) -> list[dict]:
+    """측정 요약 표 행 목록 — 데이터 확인 모달과 검수 리스트가 공유한다(동일 출력).
+    컬럼: Item · MIN · MAX · UNIT · Measurements · P/F.
+    values는 {스텝 인덱스(0-base): 측정값}이며, 없는 항목은 빈값으로 둔다."""
+    return [
+        {"Item": i + 1, "MIN": s["min"], "MAX": s["max"], "UNIT": s["unit"],
+         "Measurements": values.get(i, ""),
+         "P/F": measurement_verdict(s, values.get(i, ""))}
+        for i, s in enumerate(steps)
+    ]
