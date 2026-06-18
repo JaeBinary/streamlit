@@ -1,9 +1,10 @@
 import time
+from datetime import datetime
 
 import pandas as pd
 import streamlit as st
 
-from constants import BOARD_CONFIG, BOARD_LABELS
+from constants import BOARD_CONFIG, BOARD_LABELS, summary_records
 from database import delete_serial, insert_records, load_records
 
 # 타이머 진행바 갱신 주기(초). 재실행 왕복 한계로 실질 하한은 ~0.1s.
@@ -20,7 +21,7 @@ class BoardWizard:
     """보드 한 종의 기능 테스트 입력 위자드 + 조회 화면.
 
     진행 상태는 prefix로 네임스페이스한 세션 키에 보관해 탭 간 충돌을 막는다.
-      {p}_base   : {"serial", "test_date", "tested_by"} (기본 정보 확인 시 생성)
+      {p}_base   : {"serial", "test_datetime", "tested_by"} (기본 정보 확인 시 생성)
       {p}_step   : 현재 스텝 인덱스 (0 ~ total)
       {p}_values : {스텝 인덱스: 측정값}
       {p}_val    : 현재 입력칸 값(위젯 key). 스텝마다 콜백에서 갈아끼운다.
@@ -96,59 +97,39 @@ class BoardWizard:
         self._set(f"timer_done_{step}", False)
 
     # ── 저장 확인 다이얼로그 ──────────────────────────────────
-    def _verdict(self, spec: dict, raw) -> str:
-        """입력값이 허용 범위 안인지 판정 — 확인 화면에서 범위 밖 값을 눈에 띄게 한다.
-        범위 밖 값도 저장은 허용하므로 차단용이 아니라 확인 보조용이다."""
-        lo, hi = spec["min"], spec["max"]
-        if lo is None and hi is None:
-            return "—"
-        try:
-            v = float(raw)
-        except (TypeError, ValueError):
-            return "❓Invalid data"
-        if (lo is not None and v < lo) or (hi is not None and v > hi):
-            return "⚠️ Fail"
-        return "✅ Pass"
-
-    def _summary_df(self, values: dict) -> pd.DataFrame:
-        """확인 다이얼로그에 보여줄 입력값 요약표(항목·측정값·단위·판정)."""
-        return pd.DataFrame([
-            {"항목": i + 1, "측정값": values.get(i, ""), "단위": spec["unit"],
-             "판정": self._verdict(spec, values.get(i, ""))}
-            for i, spec in enumerate(self.steps)
-        ])
-
     def _confirm_save_dialog(self) -> None:
         """입력값을 모아 보여주고 최종 저장/취소를 받는 모달. confirm_save 플래그가 있을 때 연다."""
         base = self._get("base")
         values = self._get("values")
 
-        @st.dialog("저장 확인")
+        @st.dialog("데이터 확인")
         def _dlg() -> None:
-            st.caption(f"**{base['serial']}**  ·  {base['test_date']}  ·  {base['tested_by']}")
-            st.markdown("아래 입력값을 저장합니다. 내용을 확인하세요.")
-            st.dataframe(self._summary_df(values), width="stretch", hide_index=True)
+            st.caption(f"**{base['serial']}**  ·  {base['test_datetime'][:10]}  ·  {base['tested_by']}")
+            st.markdown("아래 측정값을 저장합니다.")
+            st.dataframe(pd.DataFrame(summary_records(self.steps, values)),
+                         width="stretch", hide_index=True)
             # 확인용 읽기 전용 표라 dataframe 툴바(검색·다운로드·열 표시/숨김)는 불필요하다.
             # 또한 모달을 Enter(키보드)로 열면 그 툴바 버튼에 hover/focus가 걸려
             # 'Show/hide columns' 툴팁이 뜨므로(마우스 클릭으로 열 땐 안 뜸) 다이얼로그 내 툴바를 숨긴다.
             st.html('<style>[role="dialog"] [data-testid="stElementToolbar"]{display:none}</style>')
 
-            ok_col, cancel_col = st.columns(2)
+            cancel_col, ok_col = st.columns(2)  # 취소 좌측 · 확인/삭제 우측
             if ok_col.button(":material/check: 확인", type="primary", width="stretch",
                              key=self._key("save_ok")):
                 rows = [
-                    (base["serial"], i + 1, base["test_date"], base["tested_by"], values[i])
+                    (base["serial"], i + 1, base["test_datetime"], base["tested_by"], values[i])
                     for i in range(self.total)
                 ]
-                insert_records(rows, st.user.email)
+                insert_records(rows)
                 # rerun 후에도 유지되는 토스트로 알리려 메시지를 남기고(다이얼로그가 닫힌 뒤 표시),
                 # _reset이 confirm_save까지 비운 뒤 기본 정보 화면으로 돌아간다.
-                self._set("save_msg", f"**{base['serial']}** 의 데이터가 저장되었습니다.")
+                # 저장 시점엔 '검수 중'이며, 관리자가 검수 리스트에서 승인해야 최종 저장된다.
+                self._set("save_msg", f"**{base['serial']}** 저장됨 · 관리자 검수 대기 중")
                 self._reset()
                 st.rerun()
             if cancel_col.button(":material/close: 취소", width="stretch",
                                  key=self._key("save_cancel")):
-                self._set("confirm_save", False)  # 마지막 스텝에 그대로 머문다
+                # 모달만 닫고 마지막 스텝에 그대로 머문다(confirm_save는 열 때 이미 소비됨).
                 st.rerun()
 
         _dlg()
@@ -173,8 +154,11 @@ class BoardWizard:
             col1, col2, col3 = st.columns(3)
             serial = col1.text_input("Serial 번호", placeholder=f"예시: 21 or {self.example}",
                                      key=self._key("in_serial"))
-            test_date = col2.date_input("날짜", key=self._key("in_date"))
-            tested_by = col3.text_input("진행자", value=st.user.name, key=self._key("in_by"))
+            # 날짜는 오늘로, 진행자는 로그인 사용자로 자동 고정한다(비활성). 비활성 위젯도
+            # 폼 제출 시 값은 정상 반환되므로 아래 저장 로직은 그대로 동작한다.
+            test_date = col2.date_input("날짜", key=self._key("in_date"), disabled=True)
+            tested_by = col3.text_input("진행자", value=st.user.name, key=self._key("in_by"),
+                                        disabled=True)
             confirmed = st.form_submit_button("확인", type="primary", width="stretch",
                                               key=self._key("confirm"))
 
@@ -190,15 +174,18 @@ class BoardWizard:
             st.error("테스트 담당자는 필수 항목입니다.")
             return
 
-        # 이미 테스트된 Serial이면 진입을 막는다(중복 저장 방지).
-        existing = load_records(st.user.email, role)["serial"]
+        # 이미 테스트된 Serial이면 진입을 막는다(중복 저장 방지). 검수 중·승인 모두 포함해 막는다.
+        existing = load_records()["serial"]
         if serial_norm in set(existing):
             st.toast("이미 테스트를 완료하였습니다.", icon="⚠️")
             return
 
         self._set("base", {
             "serial": serial_norm,
-            "test_date": test_date.isoformat(),
+            # 값은 시각까지 저장(test_datetime), 표시는 호출부에서 date만 잘라 쓴다.
+            # 날짜칸(비활성=오늘)에 확인 시점의 시각을 합쳐 'YYYY-MM-DD HH:MM:SS'로 만든다.
+            "test_datetime": datetime.combine(test_date, datetime.now().time())
+                                     .strftime("%Y-%m-%d %H:%M:%S"),
             "tested_by": tested_by.strip(),
         })
         self._set("step", 0)
@@ -259,7 +246,7 @@ class BoardWizard:
             # 아이콘만 남긴 tertiary 버튼을 키 있는 컨테이너에 담고 align-items:flex-end로
             # 컬럼 우측 끝에 붙인다(파일 공통 CSS 방식). 동작은 help 툴팁으로 안내.
             info_col, cancel_col = st.columns([9, 1], vertical_alignment="center")
-            info_col.caption(f"**{base['serial']}**  ·  {base['test_date']}  ·  {base['tested_by']}")
+            info_col.caption(f"**{base['serial']}**  ·  {base['test_datetime'][:10]}  ·  {base['tested_by']}")
             cancel_key = self._key("cancel_box")
             with cancel_col.container(key=cancel_key):
                 st.button(":material/close:", type="tertiary", help="취소",
@@ -310,14 +297,15 @@ class BoardWizard:
 
     # ── 데이터 조회 (Raw Data) ────────────────────────────────
     def render_records(self) -> None:
-        df = load_records(st.user.email, role)
+        df = load_records()
         st.subheader("Raw Data")
 
-        # 보드 접두사로 시작하는 Serial 행만 표시 (정렬은 load_records에서 이미 적용).
-        df = df[df["serial"].str.startswith(self.prefix)]
+        # 보드 접두사로 시작하고 검수 완료(verify_by NOT NULL)된 행만 표시한다.
+        # (검수 중 데이터는 검수 리스트에서만 보이고, Raw Data엔 승인된 것만 노출)
+        df = df[df["serial"].str.startswith(self.prefix) & df["verify_by"].notna()]
 
         if df.empty:
-            st.info("아직 저장된 데이터가 없습니다.")
+            st.info("검수 완료된 데이터가 없습니다.")
             return
 
         col1, col2 = st.columns(2)
@@ -332,7 +320,7 @@ class BoardWizard:
         @st.dialog("데이터 삭제 확인")
         def _confirm_delete(serial: str) -> None:
             st.markdown(f"**{serial}** 의 모든 데이터를 삭제합니다.")
-            ok_col, cancel_col = st.columns(2)
+            cancel_col, ok_col = st.columns(2)  # 취소 좌측 · 확인/삭제 우측
             if ok_col.button(":material/check: 확인", type="primary", width="stretch",
                              key=self._key("del_ok")):
                 delete_serial(serial)
@@ -357,7 +345,8 @@ class BoardWizard:
         else:
             selected = st.selectbox("Serial 번호 선택", options, key=self._key("filter_serial"))
 
-        # 선택 Serial로 필터링해 조회 전용 테이블로 표시.
+        # 선택 Serial로 필터링해 조회 전용 테이블로 표시. test_datetime·verify_datetime은
+        # 원본(시각까지) 그대로 노출한다.
         view = df if selected == ALL else df[df["serial"] == selected]
         st.dataframe(view, width="stretch", hide_index=True)
 
