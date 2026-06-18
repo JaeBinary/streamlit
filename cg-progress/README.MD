@@ -19,6 +19,8 @@
 [환경]
 - 작업 디렉터리: C:\GitHub\streamlit\cg-progress
 - 가상환경: .venv (Python 3.13). Streamlit는 requirements.txt에 1.58.0으로 '고정'됨.
+- 검증 전용 가상환경: .venv-verify (playwright + Chromium 상주). 1회 구축 후 재사용하며
+  앱 .venv·requirements.txt는 검증 패키지로 오염시키지 않는다(.gitignore에 등록됨).
 - 실행: .venv\Scripts\python.exe -m streamlit run <app> --server.port <포트>
         --server.headless true --browser.gatherUsageStats false
 - 실제 앱은 Microsoft 로그인 게이트가 있어 직접 구동 테스트가 막힌다
@@ -37,11 +39,12 @@
 [작업 절차]
 1) 관련 코드와 제약(특히 Streamlit 위젯/실행모델 한계)을 먼저 파악한다.
 2) 공식문서 확인(WebFetch) → 가설 수립.
-3) 무인증 재현 + Playwright 실측. 검증용 패키지(playwright 등)는 임시로 설치한다.
+3) 무인증 재현 + Playwright 실측. 검증은 .venv-verify(playwright 상주)로 실행한다.
+   재현 스크립트: `.venv-verify\Scripts\python.exe <_repro*.py>` (1회 구축 후 재사용).
 4) 통과한 방식만 실제 파일에 반영. 변경마다
    `.venv\Scripts\python.exe -m py_compile <file>` 로 문법을 확인한다.
-5) 뒷정리: 재현 스크립트·스크린샷·로그·백그라운드 streamlit 프로세스를 제거하고,
-   임시 설치 패키지(playwright 등)도 제거해 환경을 원복한다.
+5) 뒷정리: 재현 스크립트·스크린샷·로그·백그라운드 streamlit 프로세스는 매번 제거한다.
+   단, .venv-verify는 재사용을 위해 남겨둔다.
    requirements.txt에는 검증용 패키지를 넣지 않는다.
 6) '원인 → 수정 → 검증 결과'를 한국어로 명확히 보고한다.
    데이터(.db)·사용자 파일은 임의로 건드리지 않는다.
@@ -75,3 +78,11 @@ Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 ```powershell
 pip install -r requirements.txt
 ```
+
+### 5. 검증 전용 가상환경 구축 (1회성, playwright 실측용)
+```powershell
+py -3.13 -m venv .venv-verify
+.\.venv-verify\Scripts\python.exe -m pip install playwright
+.\.venv-verify\Scripts\python.exe -m playwright install chromium
+```
+이후 재현 스크립트는 `.\.venv-verify\Scripts\python.exe <_repro*.py>` 로 실행한다.
