@@ -1,5 +1,6 @@
 import time
 
+import pandas as pd
 import streamlit as st
 
 from constants import BOARD_CONFIG, BOARD_LABELS
@@ -56,20 +57,15 @@ class BoardWizard:
     # 버튼은 st.rerun() 대신 on_click 콜백으로 처리한다. 콜백은 재실행 '전'에 실행돼
     # rerun이 한 번만 돌므로, 폼 제출 직후 "Missing Submit Button" 깜빡임이 없다.
     def _advance_step(self) -> None:
-        """현재 값을 저장하고 다음 스텝으로(마지막이면 전체 일괄 저장)."""
+        """현재 값을 저장하고 다음 스텝으로(마지막이면 저장 확인 다이얼로그 요청)."""
         step = self._get("step")
         values = self._get("values")
         values[step] = self._get("val")
         if step >= self.total - 1:
-            base = self._get("base")
-            rows = [
-                (base["serial"], i + 1, base["test_date"], base["tested_by"], values[i])
-                for i in range(self.total)
-            ]
-            insert_records(rows, st.user.email)
-            st.toast(f"**{base['serial']}** 의 데이터가 저장되었습니다.", icon="💾")
-            # 완료 화면 없이 곧바로 기본 정보 입력 화면으로 돌아간다.
-            self._reset()
+            # 마지막 스텝: 곧바로 저장하지 않고 확인 다이얼로그를 띄우도록 플래그만 세운다.
+            # st.dialog는 콜백이 아니라 스크립트 본문에서 호출해야 모달이 열리므로,
+            # 실제 저장은 _render_step_wizard가 여는 다이얼로그에서 처리한다.
+            self._set("confirm_save", True)
         else:
             self._set("step", step + 1)
             # 다음 스텝의 저장값(없으면 빈값)으로 입력칸을 갈아끼운다. key가 고정이라
@@ -85,7 +81,7 @@ class BoardWizard:
             self._set("val", values.get(step - 1, ""))
 
     def _reset(self) -> None:
-        for name in ("base", "step", "values", "val"):
+        for name in ("base", "step", "values", "val", "confirm_save"):
             st.session_state.pop(self._key(name), None)
         # Serial 입력칸은 비워 다음 테스트를 새 번호로 시작한다(날짜·담당자는 유지).
         st.session_state.pop(self._key("in_serial"), None)
@@ -99,9 +95,72 @@ class BoardWizard:
         self._set(f"timer_deadline_{step}", time.monotonic() + seconds)
         self._set(f"timer_done_{step}", False)
 
+    # ── 저장 확인 다이얼로그 ──────────────────────────────────
+    def _verdict(self, spec: dict, raw) -> str:
+        """입력값이 허용 범위 안인지 판정 — 확인 화면에서 범위 밖 값을 눈에 띄게 한다.
+        범위 밖 값도 저장은 허용하므로 차단용이 아니라 확인 보조용이다."""
+        lo, hi = spec["min"], spec["max"]
+        if lo is None and hi is None:
+            return "—"
+        try:
+            v = float(raw)
+        except (TypeError, ValueError):
+            return "❓Invalid data"
+        if (lo is not None and v < lo) or (hi is not None and v > hi):
+            return "⚠️ Fail"
+        return "✅ Pass"
+
+    def _summary_df(self, values: dict) -> pd.DataFrame:
+        """확인 다이얼로그에 보여줄 입력값 요약표(항목·측정값·단위·판정)."""
+        return pd.DataFrame([
+            {"항목": i + 1, "측정값": values.get(i, ""), "단위": spec["unit"],
+             "판정": self._verdict(spec, values.get(i, ""))}
+            for i, spec in enumerate(self.steps)
+        ])
+
+    def _confirm_save_dialog(self) -> None:
+        """입력값을 모아 보여주고 최종 저장/취소를 받는 모달. confirm_save 플래그가 있을 때 연다."""
+        base = self._get("base")
+        values = self._get("values")
+
+        @st.dialog("저장 확인")
+        def _dlg() -> None:
+            st.caption(f"**{base['serial']}**  ·  {base['test_date']}  ·  {base['tested_by']}")
+            st.markdown("아래 입력값을 저장합니다. 내용을 확인하세요.")
+            st.dataframe(self._summary_df(values), width="stretch", hide_index=True)
+            # 확인용 읽기 전용 표라 dataframe 툴바(검색·다운로드·열 표시/숨김)는 불필요하다.
+            # 또한 모달을 Enter(키보드)로 열면 그 툴바 버튼에 hover/focus가 걸려
+            # 'Show/hide columns' 툴팁이 뜨므로(마우스 클릭으로 열 땐 안 뜸) 다이얼로그 내 툴바를 숨긴다.
+            st.html('<style>[role="dialog"] [data-testid="stElementToolbar"]{display:none}</style>')
+
+            ok_col, cancel_col = st.columns(2)
+            if ok_col.button(":material/check: 확인", type="primary", width="stretch",
+                             key=self._key("save_ok")):
+                rows = [
+                    (base["serial"], i + 1, base["test_date"], base["tested_by"], values[i])
+                    for i in range(self.total)
+                ]
+                insert_records(rows, st.user.email)
+                # rerun 후에도 유지되는 토스트로 알리려 메시지를 남기고(다이얼로그가 닫힌 뒤 표시),
+                # _reset이 confirm_save까지 비운 뒤 기본 정보 화면으로 돌아간다.
+                self._set("save_msg", f"**{base['serial']}** 의 데이터가 저장되었습니다.")
+                self._reset()
+                st.rerun()
+            if cancel_col.button(":material/close: 취소", width="stretch",
+                                 key=self._key("save_cancel")):
+                self._set("confirm_save", False)  # 마지막 스텝에 그대로 머문다
+                st.rerun()
+
+        _dlg()
+
     # ── 입력 폼 ───────────────────────────────────────────────
     def render_input(self) -> None:
-        """① 기본 정보(Serial·날짜·담당자) 확인 → ② 스텝 측정값 입력 → 일괄 저장."""
+        """① 기본 정보(Serial·날짜·담당자) 확인 → ② 스텝 측정값 입력 → 저장 확인 → 저장."""
+        # 직전 실행에서 저장됐다면 다이얼로그가 닫힌 뒤 토스트로 알린다.
+        msg = st.session_state.pop(self._key("save_msg"), None)
+        if msg:
+            st.toast(msg, icon="💾")
+
         if self._get("base") is None:
             self._render_base_form()
         else:
@@ -187,6 +246,14 @@ class BoardWizard:
         has_range = lo is not None or hi is not None
         is_last = step == self.total - 1
 
+        # 저장 확인 요청이 있으면 모달을 연다(콜백이 아닌 본문에서 호출해야 모달이 열림).
+        # 플래그는 '즉시 소비'해 한 번만 연다. 그대로 두면 st.tabs 특성상(모든 탭의 코드가 매
+        # rerun 실행됨) 다른 보드 탭에서 일어난 rerun에도 이 보드의 모달이 다시 열려, 사용자가
+        # 보고 있는 엉뚱한 탭 위에 뜬다. 모달을 닫거나(취소·X) 확인하면 흐름이 끝나므로 한 번 열기로 충분.
+        if self._get("confirm_save"):
+            self._set("confirm_save", False)
+            self._confirm_save_dialog()
+
         with st.container(border=True):
             # 캡션(좌) + 취소 버튼(우상단). 취소는 상태만 되돌리므로 폼 밖 일반 버튼.
             # 아이콘만 남긴 tertiary 버튼을 키 있는 컨테이너에 담고 align-items:flex-end로
@@ -210,32 +277,36 @@ class BoardWizard:
             if spec.get("timer"):
                 self._render_timer(step, spec["timer"])
 
-            # Enter → '다음' 제출이 되도록 폼으로 묶는다. Enter는 '레이아웃상 가장 왼쪽'
-            # submit을 누르므로, DOM에선 '다음'을 왼쪽(col_next)에 둬 Enter 대상으로 잡고
-            # 화면 순서(이전 좌/다음 우)는 아래 CSS(row-reverse)로 맞춘다. enter_to_submit은
-            # 서버측 요소 순서로 계산돼 CSS 반전의 영향을 받지 않는다.
-            with st.form(self._key("step_form"), border=False, clear_on_submit=False):
-                # key를 고정("{p}_val")해 스텝이 바뀌어도 위젯이 재생성되지 않게 한다.
-                # (값은 _advance_step/_prev_step 콜백에서 세션 상태로 관리)
-                st.text_input(f"측정값 ({unit})" if unit else "측정값", key=self._key("val"))
-
-                next_label = ":material/save: 저장" if is_last else "다음 :material/arrow_forward:"
-                if step > 0:
-                    # st.container(key=...)가 만든 'st-key-{key}' 클래스로 이 행만
-                    # row-reverse 해 표시 순서(이전 좌/다음 우)를 맞춘다.
-                    nav_key = self._key("nav")
-                    with st.container(key=nav_key):
-                        col_next, col_prev = st.columns(2)  # DOM: 다음(좌=Enter 대상) → 이전
-                        col_next.form_submit_button(next_label, type="primary", width="stretch",
-                                                    on_click=self._advance_step)
-                        col_prev.form_submit_button(":material/arrow_back: 이전",
-                                                    width="stretch", on_click=self._prev_step)
-                    st.html(f"<style>.st-key-{nav_key} "
-                            f'[data-testid="stHorizontalBlock"]{{flex-direction:row-reverse}}</style>')
-                else:
-                    # 첫 스텝: 이전 없음 → 다음만 full-width. 단독이라 Enter도 자연히 다음.
+            next_label = ":material/save: 저장" if is_last else "다음 :material/arrow_forward:"
+            nav_key, val_key = self._key("nav"), self._key("val")
+            next_key, prev_key = self._key("submit_next"), self._key("submit_prev")
+            # 폼 안에는 제출 버튼을 '다음/저장' 하나만 둔다. 폼에 제출 버튼이 2개면 Enter가
+            # 마지막 스텝에서 라벨이 '저장'으로 바뀔 때 '이전'으로 틀어진다(실측 확인). 그래서
+            # '이전'은 폼 밖 일반 버튼으로 분리하고, 좌우 배치는 폼 래퍼를 display:contents로
+            # 평탄화해 입력칸·다음·이전을 nav 컨테이너의 flex 자식으로 만든 뒤 order로 맞춘다.
+            # (st.columns로는 폼 경계를 넘는 좌우 배치가 안 되므로 이 방식이 필요하다.)
+            # https://docs.streamlit.io/develop/api-reference/execution-flow/st.form
+            with st.container(key=nav_key):
+                with st.form(self._key("step_form"), border=False, clear_on_submit=False):
+                    # key 고정("{p}_val")으로 스텝이 바뀌어도 위젯 재생성 없음(값은 콜백이 관리).
+                    st.text_input(f"측정값 ({unit})" if unit else "측정값", key=val_key)
                     st.form_submit_button(next_label, type="primary", width="stretch",
-                                          on_click=self._advance_step)
+                                          key=next_key, on_click=self._advance_step)
+                # '이전'은 폼 밖(첫 스텝엔 없음). 상태만 되돌리므로 on_click 콜백.
+                if step > 0:
+                    st.button(":material/arrow_back: 이전", width="stretch",
+                              key=prev_key, on_click=self._prev_step)
+            # 폼/내부 블록을 display:contents로 평탄화 → 입력칸(1행 전체) / 이전·다음(2행 좌우).
+            # flex-flow:row wrap을 명시(미지정 시 stVerticalBlock 기본 column을 물려받아 세로로 쌓임).
+            st.html(f"""<style>
+            .st-key-{nav_key} {{ display:flex; flex-flow:row wrap; gap:0.5rem; }}
+            .st-key-{nav_key} > [data-testid="stLayoutWrapper"] {{ display:contents; }}
+            .st-key-{nav_key} [data-testid="stForm"] {{ display:contents; padding:0; border:0; }}
+            .st-key-{nav_key} [data-testid="stForm"] > [data-testid="stVerticalBlock"] {{ display:contents; }}
+            .st-key-{val_key} {{ order:0; flex:0 0 100%; }}
+            .st-key-{prev_key} {{ order:1; flex:1 1 0; min-width:0; }}
+            .st-key-{next_key} {{ order:2; flex:1 1 0; min-width:0; }}
+            </style>""")
 
     # ── 데이터 조회 (Raw Data) ────────────────────────────────
     def render_records(self) -> None:
