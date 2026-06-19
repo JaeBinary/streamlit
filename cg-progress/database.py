@@ -147,17 +147,35 @@ def insert_records(rows: list):
     load_records.clear()
 
 def verify_serial(serial, verify_by):
-    """해당 Serial의 모든 test_item을 승인 처리한다(verify_datetime=현재시각, verify_by=승인자 oid)."""
+    """해당 Serial의 '검수 중'(verify_by IS NULL) 행만 승인 처리한다(verify_datetime=현재시각, verify_by=승인자 oid).
+    이미 승인되었거나 삭제되어 대상이 없으면 0을 반환한다 — 동시 접속 시 중복 처리(경합)를 막는 가드.
+    반환값(영향 행 수)으로 호출부가 실제 처리 여부를 판단한다."""
     conn = get_conn()
     with conn:
-        conn.execute(
-            "UPDATE test_results SET verify_datetime=?, verify_by=? WHERE serial=?",
+        cur = conn.execute(
+            "UPDATE test_results SET verify_datetime=?, verify_by=? WHERE serial=? AND verify_by IS NULL",
             (_now(), str(verify_by), str(serial)),
         )
     load_records.clear()
+    return cur.rowcount
+
+def delete_pending(serial, owner_oid=None):
+    """'검수 중'(verify_by IS NULL)인 행만 삭제한다 — 검수 리스트의 반려(관리자)·취소(편집자)용.
+    owner_oid를 주면 본인이 요청한 건(tested_by=oid)으로 제한한다(편집자). 이미 승인/삭제되어 대상이
+    없으면 0을 반환한다 — 동시 접속 시 이미 처리된 건을 잘못 삭제하는 것을 막는 경합 가드."""
+    conn = get_conn()
+    sql = "DELETE FROM test_results WHERE serial=? AND verify_by IS NULL"
+    params = [str(serial)]
+    if owner_oid is not None:
+        sql += " AND tested_by=?"
+        params.append(str(owner_oid))
+    with conn:
+        cur = conn.execute(sql, params)
+    load_records.clear()
+    return cur.rowcount
 
 def delete_serial(serial):
-    """해당 Serial의 모든 test_item 행을 삭제한다."""
+    """해당 Serial의 모든 test_item 행을 삭제한다(상태 무관 — Raw Data의 관리자 삭제용)."""
     conn = get_conn()
     with conn:
         conn.execute("DELETE FROM test_results WHERE serial=?", (str(serial),))
