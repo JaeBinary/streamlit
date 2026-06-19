@@ -65,9 +65,14 @@ def get_or_create_user(oid: str, email: str, name: str) -> str:
     oid가 비어 있던 레거시 행(email만 있던 기존 사용자)은 첫 로그인 시 oid를 채워 재사용한다."""
     conn = get_conn()
     with conn:
-        # 1) oid로 우선 조회 (정상 경로).
-        row = conn.execute("SELECT role FROM users WHERE oid=?", (oid,)).fetchone()
+        # 1) oid로 우선 조회 (정상 경로). 표시 이름·이메일은 매 로그인 시 최신값으로 갱신한다.
+        #    records의 tested_by·verify_by에는 불변 oid를 저장하므로, AD에서 이름이 바뀌어도
+        #    매핑은 끊기지 않고 화면에는 최신 이름이 나온다.
+        row = conn.execute("SELECT role, name, email FROM users WHERE oid=?", (oid,)).fetchone()
         if row:
+            if (name, email) != (row[1], row[2]):
+                conn.execute("UPDATE users SET name=?, email=? WHERE oid=?", (name, email, oid))
+                user_names.clear()
             return row[0]
         # 2) 레거시 행 흡수: oid가 NULL이던 동일 email 행이 있으면 oid를 채워 재사용(중복 생성 방지).
         legacy = conn.execute(
@@ -86,6 +91,7 @@ def get_or_create_user(oid: str, email: str, name: str) -> str:
             "INSERT INTO users (oid, email, name, role, date_first_registered) VALUES (?,?,?,?,?)",
             (oid, email, name, role, _now()),
         )
+        user_names.clear()
         return role
 
 @st.cache_data(ttl=300)
@@ -103,6 +109,16 @@ def update_user(email: str, name: str, role: str):
     with conn:
         conn.execute("UPDATE users SET name=?, role=? WHERE email=?", (name, role, email))
     load_users.clear()
+    user_names.clear()  # 이름이 바뀌면 oid→이름 매핑도 무효화
+
+
+@st.cache_data(ttl=300)
+def user_names() -> dict:
+    """oid → 표시 이름 매핑. records의 tested_by·verify_by(oid 저장)를 화면에 이름으로
+    바꿔 표시할 때 쓴다. oid를 못 찾으면(레거시 행·미등록) 호출부에서 저장값 그대로 폴백한다."""
+    conn = get_conn()
+    rows = conn.execute("SELECT oid, name FROM users WHERE oid IS NOT NULL").fetchall()
+    return {oid: name for oid, name in rows}
 
 
 # ── Records ───────────────────────────────────────────────
@@ -131,7 +147,7 @@ def insert_records(rows: list):
     load_records.clear()
 
 def verify_serial(serial, verify_by):
-    """해당 Serial의 모든 test_item을 승인 처리한다(verify_datetime=현재시각, verify_by=승인자 이메일)."""
+    """해당 Serial의 모든 test_item을 승인 처리한다(verify_datetime=현재시각, verify_by=승인자 oid)."""
     conn = get_conn()
     with conn:
         conn.execute(
