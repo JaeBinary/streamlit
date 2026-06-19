@@ -2,7 +2,7 @@ import pandas as pd
 import streamlit as st
 
 from constants import board_by_prefix, summary_records
-from database import delete_serial, load_records, user_names, verify_serial
+from database import delete_pending, load_records, user_names, verify_serial
 
 # 관리자·편집자 페이지. streamlit_app.py에서 해당 역할일 때만 네비게이션에 노출하지만,
 # 페이지 단에서도 한 번 더 막아 URL 직접 접근 등 우회 진입을 차단한다(다층 방어).
@@ -19,17 +19,30 @@ st.title("Verification")
 st.caption('내가 "검수요청한 데이터"를 확인하고 필요하면 요청을 취소합니다.' if is_editor
            else '저장된 "데이터를 검수"하여 승인하거나 반려(삭제)합니다.')
 
-# 직전 실행(승인·반려)의 결과를 rerun 후 토스트로 알린다.
-msg = st.session_state.pop("verify_msg", None)
-if msg:
-    st.toast(msg, icon="✅")
-
 # verify_by가 NULL인 행이 '검수 중'이다(전체 공개 조회 후 파이썬에서 필터).
 # 편집자는 tested_by(불변 oid)가 본인 oid인 자신의 검수요청 건만 본다.
 pending = load_records()
 pending = pending[pending["verify_by"].isna()]
 if is_editor:
     pending = pending[pending["tested_by"] == st.user.oid]
+
+# 직전 실행 결과를 토스트로 알린다(성공 ✅ / 경합 ⚠️).
+# Streamlit은 세션 간 자동 푸시가 없어, 동시 접속 중 다른 사용자가 먼저 처리하면 내 화면은 stale가 된다.
+# 그 경우 이미 사라진(처리된) 카드의 버튼 클릭은 rerun 과정에서 유실되어 핸들러(아래 승인/취소)가
+# 실행되지 않으므로, 직전에 봤던 목록과 비교해 '외부 처리로 사라진 건'을 감지해 따로 알린다.
+# (내가 직접 일으킨 액션 메시지 msg·warn이 있으면 그게 우선이다.)
+current = set(pending["serial"])
+vanished = st.session_state.get("verify_seen", set()) - current
+st.session_state["verify_seen"] = current
+
+msg = st.session_state.pop("verify_msg", None)
+warn = st.session_state.pop("verify_warn", None)
+if msg:
+    st.toast(msg, icon="✅")
+elif warn:
+    st.toast(warn, icon="⚠️")
+elif vanished:
+    st.toast("이미 처리되었습니다.", icon="⚠️")
 
 if pending.empty:
     st.info("검수요청한 데이터가 없습니다." if is_editor else "검수 대기 중인 데이터가 없습니다.")
@@ -46,9 +59,13 @@ def _confirm_delete(serial: str) -> None:
     back_col, ok_col = st.columns(2)  # 닫기 좌측 · 실행 우측
     ok_label = ":material/undo: 요청 취소" if is_editor else ":material/delete: 삭제"
     if ok_col.button(ok_label, type="primary", width="stretch", key="delete_ok"):
-        delete_serial(serial)
-        st.session_state["verify_msg"] = (f"**{serial}** 검수요청이 취소되었습니다." if is_editor
-                                           else f"**{serial}** 반려(삭제)되었습니다.")
+        # 검수 중인 건만 삭제한다. 동시 접속 중 관리자가 먼저 승인(또는 처리)했다면 대상이 없어
+        # 0건이 반환되고 취소/반려는 무효화된다(stale 화면에서의 잘못된 삭제 방지).
+        if delete_pending(serial, st.user.oid if is_editor else None):
+            st.session_state["verify_msg"] = (f"**{serial}** 검수요청이 취소되었습니다." if is_editor
+                                               else f"**{serial}** 반려(삭제)되었습니다.")
+        else:
+            st.session_state["verify_warn"] = f"**{serial}** 은(는) 이미 처리되어 취소할 수 없습니다."
         st.rerun()
     if back_col.button(":material/close: 닫기", width="stretch", key="delete_back"):
         st.rerun()
@@ -68,7 +85,7 @@ for serial, group in pending.groupby("serial", sort=False):
     with st.container(border=True):
         st.markdown(f"#### {serial}")
         tester = names.get(head["tested_by"], head["tested_by"])
-        st.caption(f"{head['test_datetime'][:10]}  ·  {tester}  ·  {len(group)}개 항목")
+        st.caption(f"{head['test_datetime'][:10]}  ·  {tester}")
 
         # 데이터 확인 모달과 동일한 표(공용 summary_records). DB의 test_item(1-base)을
         # 스텝 인덱스(0-base)로 맞춰 측정값 dict를 만든 뒤 그대로 전달한다.
@@ -86,6 +103,9 @@ for serial, group in pending.groupby("serial", sort=False):
                 _confirm_delete(serial)
             if approve_col.button(":material/check: 승인", type="primary", width="stretch",
                                   key=f"approve_{serial}"):
-                verify_serial(serial, st.user.oid)
-                st.session_state["verify_msg"] = f"**{serial}** 승인되었습니다."
+                # 검수 중인 건만 승인된다. 편집자가 먼저 취소했다면 대상이 없어 무효화된다(경합 가드).
+                if verify_serial(serial, st.user.oid):
+                    st.session_state["verify_msg"] = f"**{serial}** 승인되었습니다."
+                else:
+                    st.session_state["verify_warn"] = f"**{serial}** 은(는) 이미 처리된 항목입니다."
                 st.rerun()
