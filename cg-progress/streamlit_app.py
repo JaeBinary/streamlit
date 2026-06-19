@@ -74,12 +74,15 @@ pages = {
     ],
 }
 
-# 관리자 전용 그룹: admin일 때만 "관리자" 섹션을 통째로 추가해 두 페이지를 함께 노출한다.
+# 검수 리스트는 관리자(전체 검수)·편집자(본인 요청분)가 함께 보고, 사용자 권한 관리는 관리자 전용이다.
+verification = st.Page("pages/verification.py", title="검수 리스트", icon=":material/verified:")
 if role == "admin":
     pages["관리자"] = [
         st.Page("pages/authorization.py", title="사용자 권한", icon=":material/admin_panel_settings:"),
-        st.Page("pages/verification.py",  title="검수 리스트", icon=":material/verified:"),
+        verification,
     ]
+elif role == "editor":
+    pages["편집자"] = [verification]
 
 pg = st.navigation(pages)
 pg.run()
