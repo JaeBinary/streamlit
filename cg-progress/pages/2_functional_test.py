@@ -5,7 +5,7 @@ import pandas as pd
 import streamlit as st
 
 from constants import BOARD_CONFIG, BOARD_LABELS, summary_records
-from database import delete_serial, insert_records, load_records
+from database import delete_serial, insert_records, load_records, user_names
 
 # 타이머 진행바 갱신 주기(초). 재실행 왕복 한계로 실질 하한은 ~0.1s.
 TIMER_REFRESH_SEC = 0.1
@@ -21,7 +21,7 @@ class BoardWizard:
     """보드 한 종의 기능 테스트 입력 위자드 + 조회 화면.
 
     진행 상태는 prefix로 네임스페이스한 세션 키에 보관해 탭 간 충돌을 막는다.
-      {p}_base   : {"serial", "test_datetime", "tested_by"} (기본 정보 확인 시 생성)
+      {p}_base   : {"serial", "test_datetime", "tested_by"(oid), "tested_by_name"(표시용)} (기본 정보 확인 시 생성)
       {p}_step   : 현재 스텝 인덱스 (0 ~ total)
       {p}_values : {스텝 인덱스: 측정값}
       {p}_val    : 현재 입력칸 값(위젯 key). 스텝마다 콜백에서 갈아끼운다.
@@ -104,7 +104,7 @@ class BoardWizard:
 
         @st.dialog("데이터 확인")
         def _dlg() -> None:
-            st.caption(f"**{base['serial']}**  ·  {base['test_datetime'][:10]}  ·  {base['tested_by']}")
+            st.caption(f"**{base['serial']}**  ·  {base['test_datetime'][:10]}  ·  {base['tested_by_name']}")
             st.markdown("아래 측정값을 저장합니다.")
             st.dataframe(pd.DataFrame(summary_records(self.steps, values)),
                          width="stretch", hide_index=True)
@@ -154,11 +154,11 @@ class BoardWizard:
             col1, col2, col3 = st.columns(3)
             serial = col1.text_input("Serial 번호", placeholder=f"예시: 21 or {self.example}",
                                      key=self._key("in_serial"))
-            # 날짜는 오늘로, 진행자는 로그인 사용자로 자동 고정한다(비활성). 비활성 위젯도
-            # 폼 제출 시 값은 정상 반환되므로 아래 저장 로직은 그대로 동작한다.
+            # 날짜는 오늘로, 진행자는 로그인 사용자 이름으로 자동 고정한다(비활성·표시용).
+            # 저장은 이름이 아니라 불변 oid로 하므로(아래 base) AD에서 이름이 바뀌어도
+            # 과거 기록과의 매핑이 끊기지 않는다. 조회 화면에선 oid→현재 이름으로 변환해 보여준다.
             test_date = col2.date_input("날짜", key=self._key("in_date"), disabled=True)
-            tested_by = col3.text_input("진행자", value=st.user.name, key=self._key("in_by"),
-                                        disabled=True)
+            col3.text_input("진행자", value=st.user.name, key=self._key("in_by"), disabled=True)
             confirmed = st.form_submit_button("확인", type="primary", width="stretch",
                                               key=self._key("confirm"))
 
@@ -170,8 +170,8 @@ class BoardWizard:
             st.error(f"Serial 번호는 '{self.prefix} + 숫자 {self.digits}자리' 형식입니다. "
                      f"숫자만 입력해도 됩니다 (예: 21 → {self.example}).")
             return
-        if not tested_by.strip():
-            st.error("테스트 담당자는 필수 항목입니다.")
+        if not st.user.oid:
+            st.error("로그인 정보를 확인할 수 없습니다. 다시 로그인해 주세요.")
             return
 
         # 이미 테스트된 Serial이면 진입을 막는다(중복 저장 방지). 검수 중·승인 모두 포함해 막는다.
@@ -186,7 +186,8 @@ class BoardWizard:
             # 날짜칸(비활성=오늘)에 확인 시점의 시각을 합쳐 'YYYY-MM-DD HH:MM:SS'로 만든다.
             "test_datetime": datetime.combine(test_date, datetime.now().time())
                                      .strftime("%Y-%m-%d %H:%M:%S"),
-            "tested_by": tested_by.strip(),
+            "tested_by": st.user.oid,        # DB 저장용 — 불변 oid
+            "tested_by_name": st.user.name,  # 화면 표시용 — 현재 로그인 이름
         })
         self._set("step", 0)
         self._set("values", {})
@@ -246,7 +247,7 @@ class BoardWizard:
             # 아이콘만 남긴 tertiary 버튼을 키 있는 컨테이너에 담고 align-items:flex-end로
             # 컬럼 우측 끝에 붙인다(파일 공통 CSS 방식). 동작은 help 툴팁으로 안내.
             info_col, cancel_col = st.columns([9, 1], vertical_alignment="center")
-            info_col.caption(f"**{base['serial']}**  ·  {base['test_datetime'][:10]}  ·  {base['tested_by']}")
+            info_col.caption(f"**{base['serial']}**  ·  {base['test_datetime'][:10]}  ·  {base['tested_by_name']}")
             cancel_key = self._key("cancel_box")
             with cancel_col.container(key=cancel_key):
                 st.button(":material/close:", type="tertiary", help="취소",
@@ -355,6 +356,13 @@ class BoardWizard:
         # 선택 Serial로 필터링해 조회 전용 테이블로 표시. test_datetime·verify_datetime은
         # 원본(시각까지) 그대로 노출한다.
         view = df if selected == ALL else df[df["serial"] == selected]
+        # tested_by·verify_by에는 불변 oid가 저장돼 있으므로 화면에는 현재 이름으로 변환한다.
+        # 매핑에 없는 값(레거시 행·미등록 oid)은 저장값 그대로 폴백한다.
+        names = user_names()
+        view = view.assign(
+            tested_by=view["tested_by"].map(names).fillna(view["tested_by"]),
+            verify_by=view["verify_by"].map(names).fillna(view["verify_by"]),
+        )
         st.dataframe(view, width="stretch", hide_index=True)
 
 
