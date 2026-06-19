@@ -265,6 +265,9 @@ class BoardWizard:
                 self._render_timer(step, spec["timer"])
 
             next_label = ":material/save: 저장" if is_last else "다음 :material/arrow_forward:"
+            # 조회 전용(viewer)은 스텝은 둘러보되 마지막 '저장'만 막는다. DB 쓰기는 저장 확인
+            # 다이얼로그에서만 일어나므로, 이 버튼을 비활성화하면 viewer 흐름엔 저장 경로가 없다.
+            save_blocked = is_last and not can_edit
             nav_key, val_key = self._key("nav"), self._key("val")
             next_key, prev_key = self._key("submit_next"), self._key("submit_prev")
             # '다음/저장'과 '이전'을 모두 form_submit_button으로 폼 안에 둔다. 폼 위젯 값은
@@ -280,7 +283,9 @@ class BoardWizard:
                     # key 고정("{p}_val")으로 스텝이 바뀌어도 위젯 재생성 없음(값은 콜백이 관리).
                     st.text_input(f"측정값 ({unit})" if unit else "측정값", key=val_key)
                     st.form_submit_button(next_label, type="primary", width="stretch",
-                                          key=next_key, on_click=self._advance_step)
+                                          key=next_key, on_click=self._advance_step,
+                                          disabled=save_blocked,
+                                          help="조회 전용 계정은 저장할 수 없습니다." if save_blocked else None)
                     # '이전'도 폼 제출 버튼이라야 현재 입력값이 함께 커밋된다(첫 스텝엔 없음).
                     if step > 0:
                         st.form_submit_button(":material/arrow_back: 이전", width="stretch",
@@ -362,9 +367,8 @@ for tab, label in zip(st.tabs(BOARD_LABELS), BOARD_LABELS):
         if not wizard.total:
             st.info("준비 중입니다.")
         else:
-            if can_edit:
-                wizard.render_input()
-            else:
-                st.info("조회 전용 계정입니다. 데이터를 추가하려면 관리자에게 권한을 요청하세요.")
+            # 권한과 무관하게 위자드(TEST STEP)는 누구나 둘러볼 수 있다. 저장만 마지막 스텝에서
+            # can_edit 여부로 막으므로(_render_step_wizard의 save_blocked), viewer도 진행은 가능하다.
+            wizard.render_input()
             st.divider()
             wizard.render_records()
