@@ -14,35 +14,33 @@ st.set_page_config(
 )
 st.logo(str(IMAGES_DIR / "logo(1048x238)-removed.png"), size="large")
 
-# ── 저작권 푸터 ───────────────────────────────────────────
-# st.bottom은 호출 위치와 무관하게 화면 맨 아래에 고정 렌더되므로, 게이트 위에서 한 번만 그리면
-# 로그인 화면·로그인 후 양쪽에 동일하게 노출된다(문구 중복 정의 방지).
-# https://docs.streamlit.io/develop/api-reference/layout/st.bottom
-with st.bottom:
-    st.caption("Copyright 2026. JAEBIN KIM All rights reserved.")
-
 # ── 로그인 게이트 ─────────────────────────────────────────
 # 공식 문서 권장 패턴: 미로그인 시 로그인 화면만 그리고 st.stop()으로 중단한다.
 # 이렇게 하면 아래 st.navigation(하위 페이지)에 도달조차 못 하므로 비로그인 접근이 차단된다.
 # https://docs.streamlit.io/develop/concepts/connections/authentication
 # getattr: secrets.toml에 [auth]가 없으면 st.user.is_logged_in 자체가 없으므로 안전하게 False 처리.
 if not getattr(st.user, "is_logged_in", False):
-    # layout="wide"라 본문이 가로로 꽉 차므로, 컬럼으로 가운데 좁은 영역을 만들어 카드를 중앙 배치한다.
+    # layout="wide"라 본문이 가로로 꽉 차므로, 컬럼으로 가운데 좁은 영역을 만들어 로그인 영역을 중앙 배치한다.
     # https://docs.streamlit.io/develop/api-reference/layout/st.columns
     _, center, _ = st.columns([1, 1.3, 1])
     with center:
-        # border=True 컨테이너로 테두리 카드 효과(네이티브, CSS 불필요).
-        # https://docs.streamlit.io/develop/api-reference/layout/st.container
-        with st.container(border=True):
-            # 투명배경 와이드 로고를 카드 폭에 맞춰 표시(브랜드 헤더 역할).
-            st.image(str(IMAGES_DIR / "Orica_250x81.png"), width="stretch")
-            # 제목·부제는 카드 안에서 가운데 정렬 — 짧은 인라인 스타일만 사용.
-            st.markdown("Current Generator Progress System")
-            st.divider()
-            # 로그인 동작은 기존과 동일(공식 권장 패턴). 아이콘만 추가.
-            st.button("Microsoft 계정으로 로그인", on_click=st.login, args=("microsoft",),
-                      icon=":material/login:", type="primary", width="stretch")
+        # 어두운 와이드 제품 렌더를 히어로로 맨 위에 둔다 — 카드 테두리 없이 이미지 자체가 시선 앵커.
+        st.image(str(IMAGES_DIR / "Orica-Webgen-200-Mining-Enclosure-Design-Render-04.png"), width="stretch")
+        # 제목·부제는 히어로 아래에 가운데 정렬로 통일 — 짧은 인라인 스타일만 사용.
+        st.markdown("<h1 style='text-align: center; margin-bottom: 0;'>CGPS</h1>", unsafe_allow_html=True)
+        st.markdown("<p style='text-align: center; color: gray;'>Current Generator Progress System</p>", unsafe_allow_html=True)
+        st.divider()
+        # 로그인 동작은 기존과 동일(공식 권장 패턴). 아이콘만 추가.
+        st.button("Microsoft 계정으로 로그인", on_click=st.login, args=("microsoft",),
+                  icon=":material/login:", type="primary", width="stretch")
     st.stop()
+
+# ── 저작권 푸터 ───────────────────────────────────────────
+# st.bottom은 호출 위치와 무관하게 화면 맨 아래에 고정 렌더되지만, 게이트의 st.stop() 아래에 두면
+# 로그인 화면에서는 이 코드에 도달하지 못해 푸터가 안 보이고, 로그인 후 화면에서만 노출된다.
+# https://docs.streamlit.io/develop/api-reference/layout/st.bottom
+with st.bottom:
+    st.caption("Copyright 2026. JAEBIN KIM All rights reserved.")
 
 # ── 사용자 역할 확인 및 session_state 저장 ────────────────
 if "role" not in st.session_state:
