@@ -128,6 +128,14 @@ BOARD_CONFIG = {
 # 보드 라벨은 설정에서 자동 파생한다 — 목록을 두 곳에 두지 않아 누락을 막는다(단일 출처).
 BOARD_LABELS = list(BOARD_CONFIG)
 
+# ── 컨포멀 코팅 ───────────────────────────────────────────
+# 코팅 두께 측정 포인트(모든 보드 공통). 윗면 T1~T4 → 아랫면 B1~B4 순으로 입력받는다.
+# 이 값이 DB의 coating_point에 그대로 저장되고, 입력 라벨·요약표·검수 매핑의 단일 출처다.
+COATING_POINTS = ["T1", "T2", "T3", "T4", "B1", "B2", "B3", "B4"]
+# 임시 기준값: 최소 두께만 두고(모두 99) 상한은 없음. 단위는 마이크로미터(μm).
+COATING_MIN = 99
+COATING_UNIT = "μm"
+
 # 사용자 역할 → 한국어 라벨. 사이드바 표시·관리자 셀렉트 옵션의 단일 출처.
 ROLE_LABEL = {"admin": "관리자", "editor": "편집자", "viewer": "뷰어"}
 # 역할 → 배지 색상. 팝오버 안 권한 배지에 사용(st.badge 지원 색상).
@@ -179,4 +187,23 @@ def summary_records(steps: list[dict], values: dict[int, object]) -> list[dict]:
          "Measurements": values.get(i, ""),
          "P/F": measurement_verdict(s, values.get(i, ""))}
         for i, s in enumerate(steps)
+    ]
+
+
+def coating_steps() -> list[dict]:
+    """코팅 8포인트의 측정 스펙(모든 보드 공통). 상한(max) 없이 하한(min)만 임시 99, 단위 μm.
+    measurement_verdict·summary가 기대하는 min/max/unit 키 구조를 그대로 따른다."""
+    return [{"point": p, "min": COATING_MIN, "max": None, "unit": COATING_UNIT}
+            for p in COATING_POINTS]
+
+
+def coating_summary_records(values: dict[int, object]) -> list[dict]:
+    """코팅 측정 요약 표 행 목록 — 입력 확인 모달과 검수 리스트가 공유한다(동일 출력).
+    컬럼: Point · MIN · MAX · UNIT · Measurements · P/F.
+    values는 {포인트 인덱스(0-base): 측정값}이며, 없는 항목은 빈값으로 둔다."""
+    return [
+        {"Point": s["point"], "MIN": s["min"], "MAX": s["max"], "UNIT": s["unit"],
+         "Measurements": values.get(i, ""),
+         "P/F": measurement_verdict(s, values.get(i, ""))}
+        for i, s in enumerate(coating_steps())
     ]
