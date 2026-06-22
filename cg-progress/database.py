@@ -28,15 +28,15 @@ def _meas(m) -> str | None:
 def get_conn() -> sqlite3.Connection:
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     conn.execute("""
-        CREATE TABLE IF NOT EXISTS test_results (
-            serial          TEXT NOT NULL,
+        CREATE TABLE IF NOT EXISTS PCBA_Functional_test (
+            serial_number   TEXT NOT NULL,
             test_item       TEXT NOT NULL,
             measurements    TEXT,
             test_datetime   TEXT NOT NULL,
-            tested_by       TEXT NOT NULL,
+            test_By         TEXT NOT NULL,
             verify_datetime TEXT,
             verify_by       TEXT,
-            PRIMARY KEY (serial, test_item)
+            PRIMARY KEY (serial_number, test_item)
         )
     """)
     # oid: Entra(Azure AD) 사용자 객체 ID. 테넌트 내 불변·재사용 불가라 데이터 저장 키로 적합하다.
@@ -53,7 +53,7 @@ def get_conn() -> sqlite3.Connection:
     """)
     # verify_by IS NULL(검수 중) 조회를 돕도록 인덱스를 둔다.
     # (users.oid는 PRIMARY KEY라 자동 인덱스가 생성된다. email 조회는 사용자 수가 적어 인덱스 불필요)
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_test_results_verify_by ON test_results(verify_by)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_test_results_verify_by ON PCBA_Functional_test(verify_by)")
     conn.commit()
     return conn
 
@@ -66,7 +66,7 @@ def get_or_create_user(oid: str, email: str, name: str) -> str:
     conn = get_conn()
     with conn:
         # 1) oid로 우선 조회 (정상 경로). 표시 이름·이메일은 매 로그인 시 최신값으로 갱신한다.
-        #    records의 tested_by·verify_by에는 불변 oid를 저장하므로, AD에서 이름이 바뀌어도
+        #    records의 test_By·verify_by에는 불변 oid를 저장하므로, AD에서 이름이 바뀌어도
         #    매핑은 끊기지 않고 화면에는 최신 이름이 나온다.
         row = conn.execute("SELECT role, name, email FROM users WHERE oid=?", (oid,)).fetchone()
         if row:
@@ -114,7 +114,7 @@ def update_user(email: str, name: str, role: str):
 
 @st.cache_data(ttl=300)
 def user_names() -> dict:
-    """oid → 표시 이름 매핑. records의 tested_by·verify_by(oid 저장)를 화면에 이름으로
+    """oid → 표시 이름 매핑. records의 test_By·verify_by(oid 저장)를 화면에 이름으로
     바꿔 표시할 때 쓴다. oid를 못 찾으면(레거시 행·미등록) 호출부에서 저장값 그대로 폴백한다."""
     conn = get_conn()
     rows = conn.execute("SELECT oid, name FROM users WHERE oid IS NOT NULL").fetchall()
@@ -128,8 +128,8 @@ def load_records() -> pd.DataFrame:
     """모든 레코드를 조회한다(전체 공개). verify_by/verify_datetime이 NULL이면 '검수 중'이다."""
     conn = get_conn()
     # test_item은 '1'~'25' 문자열이므로 숫자 순으로 정렬한다.
-    order = "ORDER BY CAST(test_item AS INTEGER), serial"
-    return pd.read_sql(f"SELECT * FROM test_results {order}", conn)
+    order = "ORDER BY CAST(test_item AS INTEGER), serial_number"
+    return pd.read_sql(f"SELECT * FROM PCBA_Functional_test {order}", conn)
 
 def insert_records(rows: list):
     """rows: list of (serial, test_item, test_datetime, tested_by, measurements). 한 번에 여러 건 저장.
@@ -139,8 +139,8 @@ def insert_records(rows: list):
     conn = get_conn()
     with conn:
         conn.executemany(
-            "INSERT OR REPLACE INTO test_results"
-            " (serial, test_item, measurements, test_datetime, tested_by, verify_datetime, verify_by)"
+            "INSERT OR REPLACE INTO PCBA_Functional_test"
+            " (serial_number, test_item, measurements, test_datetime, test_By, verify_datetime, verify_by)"
             " VALUES (?,?,?,?,?,NULL,NULL)",
             [(str(s), str(ti), _meas(m), str(d), str(tb)) for s, ti, d, tb, m in rows],
         )
@@ -153,7 +153,7 @@ def verify_serial(serial, verify_by):
     conn = get_conn()
     with conn:
         cur = conn.execute(
-            "UPDATE test_results SET verify_datetime=?, verify_by=? WHERE serial=? AND verify_by IS NULL",
+            "UPDATE PCBA_Functional_test SET verify_datetime=?, verify_by=? WHERE serial_number=? AND verify_by IS NULL",
             (_now(), str(verify_by), str(serial)),
         )
     load_records.clear()
@@ -164,10 +164,10 @@ def delete_pending(serial, owner_oid=None):
     owner_oid를 주면 본인이 요청한 건(tested_by=oid)으로 제한한다(편집자). 이미 승인/삭제되어 대상이
     없으면 0을 반환한다 — 동시 접속 시 이미 처리된 건을 잘못 삭제하는 것을 막는 경합 가드."""
     conn = get_conn()
-    sql = "DELETE FROM test_results WHERE serial=? AND verify_by IS NULL"
+    sql = "DELETE FROM PCBA_Functional_test WHERE serial_number=? AND verify_by IS NULL"
     params = [str(serial)]
     if owner_oid is not None:
-        sql += " AND tested_by=?"
+        sql += " AND test_By=?"
         params.append(str(owner_oid))
     with conn:
         cur = conn.execute(sql, params)
@@ -178,5 +178,5 @@ def delete_serial(serial):
     """해당 Serial의 모든 test_item 행을 삭제한다(상태 무관 — Raw Data의 관리자 삭제용)."""
     conn = get_conn()
     with conn:
-        conn.execute("DELETE FROM test_results WHERE serial=?", (str(serial),))
+        conn.execute("DELETE FROM PCBA_Functional_test WHERE serial_number=?", (str(serial),))
     load_records.clear()
