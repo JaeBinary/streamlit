@@ -175,7 +175,7 @@ class BoardWizard:
             return
 
         # 이미 테스트된 Serial이면 진입을 막는다(중복 저장 방지). 검수 중·승인 모두 포함해 막는다.
-        existing = load_records()["serial"]
+        existing = load_records()["serial_number"]
         if serial_norm in set(existing):
             st.toast("이미 테스트를 완료하였습니다.", icon="⚠️")
             return
@@ -310,19 +310,19 @@ class BoardWizard:
 
         # 보드 접두사로 시작하고 검수 완료(verify_by NOT NULL)된 행만 표시한다.
         # (검수 중 데이터는 검수 리스트에서만 보이고, Raw Data엔 승인된 것만 노출)
-        df = df[df["serial"].str.startswith(self.prefix) & df["verify_by"].notna()]
+        df = df[df["serial_number"].str.startswith(self.prefix) & df["verify_by"].notna()]
 
         if df.empty:
             st.info("검수 완료된 데이터가 없습니다.")
             return
 
         col1, col2 = st.columns(2)
-        col1.metric("고유 Serial 수", df["serial"].nunique())
+        col1.metric("고유 Serial 수", df["serial_number"].nunique())
         col2.metric("고유 Test Item 수", df["test_item"].nunique())
 
         # Serial 필터: '전체'는 필터 해제, 특정 Serial은 그 행만 표시.
         ALL = "전체"
-        options = [ALL] + df["serial"].unique().tolist()
+        options = [ALL] + df["serial_number"].unique().tolist()
 
         # 삭제 확인 다이얼로그. 내부 st.rerun()이 다이얼로그를 닫고 페이지를 재실행한다.
         @st.dialog("데이터 삭제 확인")
@@ -355,12 +355,12 @@ class BoardWizard:
 
         # 선택 Serial로 필터링해 조회 전용 테이블로 표시. test_datetime·verify_datetime은
         # 원본(시각까지) 그대로 노출한다.
-        view = df if selected == ALL else df[df["serial"] == selected]
-        # tested_by·verify_by에는 불변 oid가 저장돼 있으므로 화면에는 현재 이름으로 변환한다.
+        view = df if selected == ALL else df[df["serial_number"] == selected]
+        # test_By·verify_by에는 불변 oid가 저장돼 있으므로 화면에는 현재 이름으로 변환한다.
         # 매핑에 없는 값(레거시 행·미등록 oid)은 저장값 그대로 폴백한다.
         names = user_names()
         view = view.assign(
-            tested_by=view["tested_by"].map(names).fillna(view["tested_by"]),
+            test_By=view["test_By"].map(names).fillna(view["test_By"]),
             verify_by=view["verify_by"].map(names).fillna(view["verify_by"]),
         )
         st.dataframe(view, width="stretch", hide_index=True)
