@@ -39,6 +39,20 @@ def get_conn() -> sqlite3.Connection:
             PRIMARY KEY (serial_number, test_item)
         )
     """)
+    # 컨포멀 코팅: Serial마다 코팅 포인트(TOP-1~4, BOTTOM-1~4)별 두께를 측정한다.
+    # 구조는 기능 테스트와 동일(검수 흐름 공유) — test_item 대신 coating_point가 복합키의 일부다.
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS PCBA_Conformal_Coating (
+            serial_number   TEXT NOT NULL,
+            coating_point   TEXT NOT NULL,
+            measurements    TEXT,
+            test_datetime   TEXT,
+            test_by         TEXT,
+            verify_datetime TEXT,
+            verify_by       TEXT,
+            PRIMARY KEY (serial_number, coating_point)
+        )
+    """)
     # oid: Entra(Azure AD) 사용자 객체 ID. 테넌트 내 불변·재사용 불가라 데이터 저장 키로 적합하다.
     # (email·name은 변경 가능하므로 키로 쓰지 않는다 — Microsoft 문서 권장)
     # https://learn.microsoft.com/en-us/entra/identity-platform/id-token-claims-reference
@@ -54,6 +68,7 @@ def get_conn() -> sqlite3.Connection:
     # verify_by IS NULL(검수 중) 조회를 돕도록 인덱스를 둔다.
     # (users.oid는 PRIMARY KEY라 자동 인덱스가 생성된다. email 조회는 사용자 수가 적어 인덱스 불필요)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_test_results_verify_by ON PCBA_Functional_test(verify_by)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_coating_verify_by ON PCBA_Conformal_Coating(verify_by)")
     conn.commit()
     return conn
 
@@ -180,3 +195,59 @@ def delete_serial(serial):
     with conn:
         conn.execute("DELETE FROM PCBA_Functional_test WHERE serial_number=?", (str(serial),))
     load_records.clear()
+
+
+# ── Coating Records ───────────────────────────────────────
+# 기능 테스트(위 Records)와 검수 흐름·경합 가드가 동일하다. test_item → coating_point만 다르다.
+
+@st.cache_data(ttl=60)
+def load_coating_records() -> pd.DataFrame:
+    """모든 코팅 레코드를 조회한다(전체 공개). verify_by/verify_datetime이 NULL이면 '검수 중'이다."""
+    conn = get_conn()
+    return pd.read_sql("SELECT * FROM PCBA_Conformal_Coating ORDER BY serial_number, coating_point", conn)
+
+def insert_coating_records(rows: list):
+    """rows: list of (serial, coating_point, test_datetime, test_by, measurements). 한 번에 여러 건 저장.
+    저장 시 verify_datetime/verify_by는 NULL(=검수 중)로 둔다 — 관리자가 검수 리스트에서 승인하면 채워진다.
+    (serial, coating_point) 복합키가 겹치면 기존 행을 덮어쓴다(INSERT OR REPLACE → 재저장 시 다시 검수 중)."""
+    conn = get_conn()
+    with conn:
+        conn.executemany(
+            "INSERT OR REPLACE INTO PCBA_Conformal_Coating"
+            " (serial_number, coating_point, measurements, test_datetime, test_by, verify_datetime, verify_by)"
+            " VALUES (?,?,?,?,?,NULL,NULL)",
+            [(str(s), str(cp), _meas(m), str(d), str(tb)) for s, cp, d, tb, m in rows],
+        )
+    load_coating_records.clear()
+
+def verify_coating_serial(serial, verify_by):
+    """해당 Serial의 '검수 중'(verify_by IS NULL) 코팅 행만 승인 처리한다. 대상이 없으면 0을 반환한다(경합 가드)."""
+    conn = get_conn()
+    with conn:
+        cur = conn.execute(
+            "UPDATE PCBA_Conformal_Coating SET verify_datetime=?, verify_by=? WHERE serial_number=? AND verify_by IS NULL",
+            (_now(), str(verify_by), str(serial)),
+        )
+    load_coating_records.clear()
+    return cur.rowcount
+
+def delete_coating_pending(serial, owner_oid=None):
+    """'검수 중'(verify_by IS NULL)인 코팅 행만 삭제한다 — 검수 리스트의 반려(관리자)·취소(편집자)용.
+    owner_oid를 주면 본인이 요청한 건(test_by=oid)으로 제한한다(편집자). 대상이 없으면 0을 반환한다(경합 가드)."""
+    conn = get_conn()
+    sql = "DELETE FROM PCBA_Conformal_Coating WHERE serial_number=? AND verify_by IS NULL"
+    params = [str(serial)]
+    if owner_oid is not None:
+        sql += " AND test_by=?"
+        params.append(str(owner_oid))
+    with conn:
+        cur = conn.execute(sql, params)
+    load_coating_records.clear()
+    return cur.rowcount
+
+def delete_coating_serial(serial):
+    """해당 Serial의 모든 코팅 포인트 행을 삭제한다(상태 무관 — Raw Data의 관리자 삭제용)."""
+    conn = get_conn()
+    with conn:
+        conn.execute("DELETE FROM PCBA_Conformal_Coating WHERE serial_number=?", (str(serial),))
+    load_coating_records.clear()
