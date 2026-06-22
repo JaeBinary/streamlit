@@ -3,6 +3,8 @@
 라벨이 여러 파일에 흩어져 복사되면 추가/이름 변경 시 누락이 생기므로 한곳에 모은다.
 """
 
+import math
+
 # CG PCBA 5종 보드 설정. 보드마다 다른 값을 한 곳에서 관리한다.
 #   prefix : Serial 접두사. 보드 구분 기준 — Serial 정규화·조회 필터에 사용.
 #   digits : Serial 숫자 자리수 (예: digits=4 → H0021).
@@ -148,9 +150,20 @@ def measurement_verdict(spec: dict, raw: object) -> str:
     lo, hi = spec["min"], spec["max"]
     if lo is None and hi is None:
         return "—"
+    # 미측정값을 먼저 거른다. DB의 NULL은 pandas에서 float('nan')으로 들어오는데,
+    # float(nan)은 예외 없이 통과하고 'nan < lo'·'nan > hi'가 모두 False라
+    # 그대로 두면 미측정이 Pass로 오판된다(실측 확인). None·빈 문자열도 같이 막는다.
+    if raw is None:
+        return "❓ Invalid data"
+    s = str(raw).strip()
+    if not s:
+        return "❓ Invalid data"
     try:
-        v = float(raw)
+        v = float(s)
     except (TypeError, ValueError):
+        return "❓ Invalid data"
+    # 'nan'·'inf' 문자열은 float() 변환은 되지만 범위 비교가 무의미하므로 미측정으로 본다.
+    if not math.isfinite(v):
         return "❓ Invalid data"
     if (lo is not None and v < lo) or (hi is not None and v > hi):
         return "⚠️ Fail"
