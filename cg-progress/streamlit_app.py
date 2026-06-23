@@ -33,6 +33,14 @@ if not getattr(st.user, "is_logged_in", False):
         # 로그인 동작은 기존과 동일(공식 권장 패턴). 아이콘만 추가.
         st.button("Microsoft 계정으로 로그인", on_click=st.login, args=("microsoft",),
                   icon=":material/login:", type="primary", width="stretch")
+        # 로그인 실패는 대개 MS 로그인 서버 도달 실패(네트워크) — 앱이 가로챌 수 없는
+        # 프레임워크 400 페이지로 빠지므로, 사용자가 할 일을 미리 안내한다.
+        st.markdown(
+            "<p style='text-align: center; color: gray; font-size: 0.8rem; margin-top: 0.75rem;'>"
+            "로그인이 안 되면 네트워크(사내망/VPN) 연결을 확인한 뒤 잠시 후 다시 시도하세요."
+            "</p>",
+            unsafe_allow_html=True,
+        )
     st.stop()
 
 # ── 저작권 푸터 ───────────────────────────────────────────
