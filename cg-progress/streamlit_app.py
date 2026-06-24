@@ -52,9 +52,20 @@ with st.bottom:
 
 # ── 사용자 역할 확인 및 session_state 저장 ────────────────
 if "role" not in st.session_state:
-    st.session_state.role = get_or_create_user(st.user.oid, st.user.email, st.user.name)
+    st.session_state.role, st.session_state.status = \
+        get_or_create_user(st.user.oid, st.user.email, st.user.name)
 
 role = st.session_state.role
+
+# ── 계정 비활성 게이트 ────────────────────────────────────
+# status가 Disable이면 어떤 페이지에도 접근하지 못하게 막는다(네비게이션 도달 전 차단).
+# 로그아웃만 남겨 다른 계정으로 다시 로그인할 수 있게 한다.
+if st.session_state.status == "Disable":
+    _, center, _ = st.columns([1, 1.3, 1])
+    with center:
+        st.error("비활성화된 계정입니다. 접근 권한이 없으니 관리자에게 문의하세요.", icon=":material/block:")
+        st.button("로그아웃", on_click=st.logout, icon=":material/logout:", width="stretch")
+    st.stop()
 
 # ── 사이드바: 사용자 정보(컴팩트) ─────────────────────────
 # 팝오버 트리거(클릭 전)에 아바타·사용자명·권한을 노출하고, 클릭하면 이메일·로그아웃이 나온다.
@@ -88,6 +99,7 @@ my_pages = []
 if role in ("admin", "editor"):
     my_pages.append(st.Page("pages/verification.py", title="검수 리스트", icon=":material/verified:"))
 if role == "admin":
+    my_pages.append(st.Page("pages/movement.py", title="입출고 관리", icon=":material/local_shipping:"))
     my_pages.append(st.Page("pages/authorization.py", title="사용자 권한", icon=":material/admin_panel_settings:"))
 if my_pages:
     pages["마이페이지"] = my_pages
