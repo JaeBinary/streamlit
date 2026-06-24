@@ -83,14 +83,14 @@ pages = {
 }
 
 # 검수 리스트는 관리자(전체 검수)·편집자(본인 요청분)가 함께 보고, 사용자 권한 관리는 관리자 전용이다.
-verification = st.Page("pages/verification.py", title="검수 리스트", icon=":material/verified:")
+# 권한별 섹션으로 나누지 않고 "마이페이지" 하나로 묶되, 페이지 노출만 권한에 따라 달라진다.
+my_pages = []
+if role in ("admin", "editor"):
+    my_pages.append(st.Page("pages/verification.py", title="검수 리스트", icon=":material/verified:"))
 if role == "admin":
-    pages["관리자"] = [
-        st.Page("pages/authorization.py", title="사용자 권한", icon=":material/admin_panel_settings:"),
-        verification,
-    ]
-elif role == "editor":
-    pages["편집자"] = [verification]
+    my_pages.append(st.Page("pages/authorization.py", title="사용자 권한", icon=":material/admin_panel_settings:"))
+if my_pages:
+    pages["마이페이지"] = my_pages
 
 pg = st.navigation(pages)
 pg.run()
