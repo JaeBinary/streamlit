@@ -258,7 +258,7 @@ class CoatingWizard:
 
         col1, col2 = st.columns(2)
         col1.metric("고유 Serial 수", df["serial_number"].nunique())
-        col2.metric("측정 포인트 수", len(df))
+        col2.metric("고유 Point 수", df["coating_point"].nunique())
 
         # Serial 필터: '전체'는 필터 해제, 특정 Serial은 그 행만 표시.
         ALL = "전체"
