@@ -136,6 +136,14 @@ COATING_POINTS = ["T1", "T2", "T3", "T4", "B1", "B2", "B3", "B4"]
 COATING_MIN = 99
 COATING_UNIT = "μm"
 
+# 사용자 계정 상태. Enable(사용)·Disable(비활성). 관리자 셀렉트 옵션의 단일 출처.
+USER_STATUS = ["Enable", "Disable"]
+
+# PCBA 입출고 유형. DB에는 영문(Inbound/Outbound)으로 저장하고 화면 라벨만 한글로 보인다.
+# (입출고 관리 페이지 셀렉트·요약표의 단일 출처)
+MOVEMENT_TYPES = ["Inbound", "Outbound"]
+MOVEMENT_LABEL = {"Inbound": "입고", "Outbound": "출고"}
+
 # 사용자 역할 → 한국어 라벨. 사이드바 표시·관리자 셀렉트 옵션의 단일 출처.
 ROLE_LABEL = {"admin": "관리자", "editor": "편집자", "viewer": "뷰어"}
 # 역할 → 배지 색상. 팝오버 안 권한 배지에 사용(st.badge 지원 색상).
