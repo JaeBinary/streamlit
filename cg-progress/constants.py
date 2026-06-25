@@ -139,6 +139,10 @@ COATING_UNIT = "μm"
 # 사용자 계정 상태. Enable(사용)·Disable(비활성). 관리자 셀렉트 옵션의 단일 출처.
 USER_STATUS = ["Enable", "Disable"]
 
+# 보호 계정: 이 oid 사용자의 권한·상태는 본인 외 다른 관리자가 변경할 수 없다.
+# 이름·이메일은 바뀔 수 있으므로 불변 키인 oid로 식별한다.
+PROTECTED_OID = "0b1d3911-ed3e-492e-ad7b-8a9b293194fc"
+
 # PCBA 입출고 유형. DB에는 영문(Inbound/Outbound)으로 저장하고 화면 라벨만 한글로 보인다.
 # (입출고 관리 페이지 셀렉트·요약표의 단일 출처)
 MOVEMENT_TYPES = ["Inbound", "Outbound"]
