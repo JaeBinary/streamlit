@@ -125,7 +125,7 @@ def get_or_create_user(oid: str, email: str, name: str) -> tuple[str, str]:
 def load_users() -> pd.DataFrame:
     conn = get_conn()
     return pd.read_sql(
-        "SELECT email, name, role, status, join_datetime FROM Users ORDER BY join_datetime",
+        "SELECT oid, email, name, role, status, join_datetime FROM Users ORDER BY join_datetime",
         conn,
     )
 
