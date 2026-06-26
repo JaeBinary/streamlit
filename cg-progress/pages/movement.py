@@ -19,8 +19,8 @@ movements_df = load_movements()
 # 예: H 보드에 H0020까지 있으면 10 입력 → H0021~H0030. type은 DB에 영문 저장, 화면엔 한글 라벨.
 with st.form("add_movement", clear_on_submit=True):
     c1, c2 = st.columns(2)
-    board = c1.selectbox("보드", options=BOARD_LABELS)
-    manufacturer = c2.text_input("제조사").strip()
+    board = c1.selectbox("보드 종류", options=BOARD_LABELS)
+    manufacturer = c2.text_input("생산 업체").strip()
     c3, c4, c5 = st.columns(3)
     mtype = c3.selectbox("유형", options=MOVEMENT_TYPES, format_func=MOVEMENT_LABEL.get)
     mdate = c4.date_input("일자")
