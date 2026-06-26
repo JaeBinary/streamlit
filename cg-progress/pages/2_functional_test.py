@@ -6,6 +6,7 @@ import streamlit as st
 
 from constants import BOARD_CONFIG, BOARD_LABELS, summary_records
 from database import delete_serial, insert_records, load_records, user_names
+from export import build_filled_form
 
 # 타이머 진행바 갱신 주기(초). 재실행 왕복 한계로 실질 하한은 ~0.1s.
 TIMER_REFRESH_SEC = 0.1
@@ -33,6 +34,8 @@ class BoardWizard:
         self.digits = cfg["digits"]
         self.steps = cfg["steps"]
         self.total = len(self.steps)
+        # Raw Data 공식 양식 다운로드용 매핑(없으면 버튼 비노출)
+        self.form = cfg.get("form")
         # Serial 입력 예시 (placeholder·에러 문구 공용): 예) H0021
         self.example = f"{self.prefix}{21:0{self.digits}d}"
 
@@ -320,19 +323,20 @@ class BoardWizard:
         col1.metric("고유 Serial 수", df["serial_number"].nunique())
         col2.metric("고유 Test Item 수", df["test_item"].nunique())
 
-        # Serial 필터: '전체'는 필터 해제, 특정 Serial은 그 행만 표시.
-        ALL = "전체"
-        options = [ALL] + df["serial_number"].unique().tolist()
+        # Serial 필터: 미선택이면 전체 표시, 선택한 Serial들만 표시(다중 선택).
+        options = df["serial_number"].unique().tolist()
 
         # 삭제 확인 다이얼로그. 내부 st.rerun()이 다이얼로그를 닫고 페이지를 재실행한다.
         @st.dialog("데이터 삭제 확인")
-        def _confirm_delete(serial: str) -> None:
-            st.markdown(f"**{serial}** 의 모든 데이터를 삭제합니다.")
+        def _confirm_delete(serials: list[str]) -> None:
+            joined = ", ".join(f"**{s}**" for s in serials)
+            st.markdown(f"{joined} 의 모든 데이터를 삭제합니다.")
             cancel_col, ok_col = st.columns(2)  # 취소 좌측 · 확인/삭제 우측
             if ok_col.button(":material/check: 확인", type="primary", width="stretch",
                              key=self._key("del_ok")):
-                delete_serial(serial)
-                self._set("del_msg", f"**{serial}** 의 데이터가 삭제되었습니다.")
+                for s in serials:
+                    delete_serial(s)
+                self._set("del_msg", f"{joined} 의 데이터가 삭제되었습니다.")
                 st.rerun()
             if cancel_col.button(":material/close: 취소", width="stretch", key=self._key("del_cancel")):
                 st.rerun()
@@ -342,20 +346,23 @@ class BoardWizard:
         if msg:
             st.toast(msg, icon="🗑️")
 
+        PLACEHOLDER = "전체 (선택 시 해당 Serial만 표시)"
         if role == "admin":
             # 관리자만 선택 Serial을 삭제할 수 있다(우측 삭제 버튼).
-            # vertical_alignment="bottom"으로 selectbox와 버튼 하단을 맞춘다.
+            # vertical_alignment="bottom"으로 multiselect와 버튼 하단을 맞춘다.
             sel_col, btn_col = st.columns([3, 1], vertical_alignment="bottom")
-            selected = sel_col.selectbox("Serial 번호 선택", options, key=self._key("filter_serial"))
+            selected = sel_col.multiselect("Serial 번호 선택", options,
+                                           placeholder=PLACEHOLDER, key=self._key("filter_serial"))
             if btn_col.button(":material/delete: 삭제", type="primary", width="stretch",
-                              disabled=selected == ALL, key=self._key("del_btn")):
+                              disabled=not selected, key=self._key("del_btn")):
                 _confirm_delete(selected)
         else:
-            selected = st.selectbox("Serial 번호 선택", options, key=self._key("filter_serial"))
+            selected = st.multiselect("Serial 번호 선택", options,
+                                      placeholder=PLACEHOLDER, key=self._key("filter_serial"))
 
-        # 선택 Serial로 필터링해 조회 전용 테이블로 표시. test_datetime·verify_datetime은
-        # 원본(시각까지) 그대로 노출한다.
-        view = df if selected == ALL else df[df["serial_number"] == selected]
+        # 선택 Serial로 필터링해 조회 전용 테이블로 표시(미선택이면 전체).
+        # test_datetime·verify_datetime은 원본(시각까지) 그대로 노출한다.
+        view = df if not selected else df[df["serial_number"].isin(selected)]
         # test_By·verify_by에는 불변 oid가 저장돼 있으므로 화면에는 현재 이름으로 변환한다.
         # 매핑에 없는 값(레거시 행·미등록 oid)은 저장값 그대로 폴백한다.
         names = user_names()
@@ -363,6 +370,19 @@ class BoardWizard:
             test_By=view["test_By"].map(names).fillna(view["test_By"]),
             verify_by=view["verify_by"].map(names).fillna(view["verify_by"]),
         )
+
+        # 선택(미선택 시 전체) Serial을 공식 양식(.xlsx)에 채워 다운로드. test_By가 이름으로
+        # 변환된 view를 그대로 넘긴다. 양식이 없는 보드(Controller 등)는 버튼을 노출하지 않는다.
+        if self.form:
+            st.download_button(
+                ":material/download: Download XLSX",
+                data=build_filled_form(self.form["file"], self.form["sheet"],
+                                       self.form["serial_col"], self.prefix, self.total, view),
+                file_name=f"{self.form['sheet']}_{datetime.now():%Y%m%d}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                disabled=view.empty, width="stretch", key=self._key("dl_form"),
+            )
+
         st.dataframe(view, width="stretch", hide_index=True)
 
 
