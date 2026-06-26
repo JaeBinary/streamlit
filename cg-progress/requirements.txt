@@ -4,3 +4,4 @@
 streamlit[auth]==1.58.0
 pandas==3.0.3
 httpx==0.28.1          # Authlib의 starlette_client가 요구하나 streamlit[auth]가 자동 설치하지 않음
+openpyxl==3.1.5        # Raw Data → 공식 양식(.xlsx) 채우기 다운로드(export.build_filled_form)
