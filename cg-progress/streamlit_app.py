@@ -2,8 +2,8 @@ from pathlib import Path
 
 import streamlit as st
 
-from constants import ROLE_COLOR, ROLE_ICON, ROLE_LABEL
-from database import get_or_create_user
+from lib.constants import ROLE_COLOR, ROLE_ICON, ROLE_LABEL
+from lib.database import get_or_create_user
 
 IMAGES_DIR = Path(__file__).parent / "images"
 

@@ -1,11 +1,11 @@
 import pandas as pd
 import streamlit as st
 
-from constants import (COATING_POINTS, board_by_prefix, coating_summary_records,
-                       summary_records)
-from database import (delete_coating_pending, delete_pending, load_coating_records,
-                      load_records, user_names, verify_coating_serial, verify_serial)
-from ui import confirm_dialog, hide_df_toolbar
+from lib.constants import (COATING_POINTS, board_by_prefix, coating_summary_records,
+                           summary_records)
+from lib.database import (delete_coating_pending, delete_pending, load_coating_records,
+                          load_records, user_names, verify_coating_serial, verify_serial)
+from lib.ui import confirm_dialog, hide_df_toolbar
 
 # 관리자·편집자 페이지. streamlit_app.py에서 해당 역할일 때만 네비게이션에 노출하지만,
 # 페이지 단에서도 한 번 더 막아 URL 직접 접근 등 우회 진입을 차단한다(다층 방어).

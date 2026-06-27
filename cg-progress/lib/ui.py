@@ -6,7 +6,7 @@
 
 import streamlit as st
 
-from database import user_names
+from lib.database import user_names
 
 
 def map_oids(view, *cols):

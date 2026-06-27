@@ -1,7 +1,7 @@
 import streamlit as st
 
-from constants import PROTECTED_OID, ROLE_LABEL, USER_STATUS
-from database import load_users, update_user
+from lib.constants import PROTECTED_OID, ROLE_LABEL, USER_STATUS
+from lib.database import load_users, update_user
 
 role = st.session_state.get("role", "viewer")
 

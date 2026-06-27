@@ -1,9 +1,9 @@
 import streamlit as st
 
-from constants import BOARD_CONFIG, BOARD_LABELS, MOVEMENT_LABEL, MOVEMENT_TYPES
-from database import (add_movement_batch, delete_movement, load_movements,
-                      outbound_serial)
-from ui import confirm_dialog, flash, map_oids
+from lib.constants import BOARD_CONFIG, BOARD_LABELS, MOVEMENT_LABEL, MOVEMENT_TYPES
+from lib.database import (add_movement_batch, delete_movement, load_movements,
+                          outbound_serial)
+from lib.ui import confirm_dialog, flash, map_oids
 
 role = st.session_state.get("role", "viewer")
 

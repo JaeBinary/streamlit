@@ -5,7 +5,8 @@ from pathlib import Path
 
 import pandas as pd
 
-DB_PATH = Path(__file__).parent / "data" / "cg_progress.db"
+# 이 파일은 lib/ 아래 있으므로 프로젝트 루트는 parent.parent다(data/는 루트 기준).
+DB_PATH = Path(__file__).parent.parent / "data" / "cg_progress.db"
 DB_PATH.parent.mkdir(exist_ok=True)
 
 

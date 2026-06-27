@@ -2,12 +2,12 @@ from datetime import datetime
 
 import streamlit as st
 
-from constants import (BOARD_CONFIG, BOARD_LABELS, COATING_MIN, COATING_POINT_ITEM,
-                       COATING_POINTS, COATING_UNIT, coating_summary_records)
-from database import (delete_coating_serial, insert_coating_records,
-                      load_coating_records)
-from export import build_filled_form
-from wizard import BaseWizard, can_edit
+from lib.constants import (BOARD_CONFIG, BOARD_LABELS, COATING_MIN, COATING_POINT_ITEM,
+                           COATING_POINTS, COATING_UNIT, coating_summary_records)
+from lib.database import (delete_coating_serial, insert_coating_records,
+                          load_coating_records)
+from lib.export import build_filled_form
+from lib.wizard import BaseWizard, can_edit
 
 st.title("Conformal Coating")
 st.caption('CG PCBA 5종에 대한 "컨포멀 코팅" 두께를 측정합니다.')

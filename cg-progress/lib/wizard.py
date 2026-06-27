@@ -19,7 +19,7 @@ from datetime import datetime
 import pandas as pd
 import streamlit as st
 
-from ui import confirm_dialog, flash, hide_df_toolbar, map_oids
+from lib.ui import confirm_dialog, flash, hide_df_toolbar, map_oids
 
 
 def _role() -> str:
