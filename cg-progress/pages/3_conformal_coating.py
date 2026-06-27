@@ -323,7 +323,7 @@ class CoatingWizard:
                 data=build_filled_form(self.coating_form["file"], self.coating_form["sheet"],
                                        self.coating_form["serial_col"], self.prefix,
                                        len(self.points), form_view),
-                file_name=f"{self.coating_form['sheet']}_Coating_{datetime.now():%Y%m%d}.xlsx",
+                file_name=f"{self.coating_form['file'].removesuffix('.xlsx')}_{datetime.now():%y%m%d}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 disabled=view.empty, width="stretch", key=self._key("dl_form"),
             )
