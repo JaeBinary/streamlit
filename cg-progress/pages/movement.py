@@ -1,7 +1,7 @@
 import streamlit as st
 
 from constants import BOARD_CONFIG, BOARD_LABELS, MOVEMENT_LABEL, MOVEMENT_TYPES
-from database import add_movement_batch, delete_movement, load_movements
+from database import add_movement_batch, delete_movement, load_movements, user_names
 
 role = st.session_state.get("role", "viewer")
 
@@ -10,69 +10,110 @@ if role != "admin":
     st.stop()
 
 st.title("입출고 관리")
-st.caption("보드와 수량을 입력하면 serial_number가 순차 채번되어 등록됩니다.")
+st.caption("수량을 입력하면 serial_number가 순차 채번되어 등록됩니다.")
 
-movements_df = load_movements()
 
-# ── 등록 패널 ─────────────────────────────────────────────
-# 보드를 고르고 수량을 입력하면, 그 보드의 기존 최대 번호 다음부터 수량만큼 serial을 채번한다.
-# 예: H 보드에 H0020까지 있으면 10 입력 → H0021~H0030. type은 DB에 영문 저장, 화면엔 한글 라벨.
-with st.form("add_movement", clear_on_submit=True):
-    c1, c2 = st.columns(2)
-    board = c1.selectbox("보드 종류", options=BOARD_LABELS)
-    manufacturer = c2.text_input("생산 업체").strip()
-    c3, c4, c5 = st.columns(3)
-    mtype = c3.selectbox("유형", options=MOVEMENT_TYPES, format_func=MOVEMENT_LABEL.get)
-    mdate = c4.date_input("일자")
-    qty = c5.number_input("수량", min_value=1, value=1, step=1)
-    submitted = st.form_submit_button("등록", type="primary", width="stretch")
+class MovementBoard:
+    """보드 한 종의 입출고 등록 + 조회(Raw Data) 화면.
 
-if submitted:
-    if not manufacturer:
-        st.toast("제조사를 입력하세요.", icon="⚠️")
-    else:
-        cfg = BOARD_CONFIG[board]
+    보드는 탭으로 고정되므로 등록 폼에 '보드 종류' 선택은 없다(탭의 보드로 고정).
+    위젯·세션 key는 모두 prefix로 네임스페이스해 탭 간 충돌을 막는다(2_functional_test.py와 동일).
+    """
+
+    def __init__(self, label: str, cfg: dict) -> None:
+        self.label = label
+        self.prefix = cfg["prefix"]
+        self.digits = cfg["digits"]
+
+    def _key(self, name: str) -> str:
+        return f"{self.prefix}_{name}"
+
+    # ── 등록 패널 ─────────────────────────────────────────────
+    # 수량을 입력하면, 이 보드의 기존 최대 번호 다음부터 수량만큼 serial을 채번한다.
+    # 예: H 보드에 H0020까지 있으면 10 입력 → H0021~H0030. type은 DB에 영문 저장, 화면엔 한글 라벨.
+    def render_register(self) -> None:
+        with st.form(self._key("add_movement"), clear_on_submit=True):
+            # 1행: 생산 업체 / 2행: 유형·일자·수량(가로로 나란히)
+            manufacturer = st.text_input("생산 업체", key=self._key("mf")).strip()
+            c1, c2, c3 = st.columns(3)
+            mtype = c1.selectbox("유형", options=MOVEMENT_TYPES,
+                                 format_func=MOVEMENT_LABEL.get, key=self._key("mtype"))
+            mdate = c2.date_input("일자", key=self._key("mdate"))
+            qty = c3.number_input("수량", min_value=1, value=1, step=1, key=self._key("qty"))
+            submitted = st.form_submit_button("등록", type="primary", width="stretch")
+
+        if not submitted:
+            return
+        if not manufacturer:
+            st.toast("제조사를 입력하세요.", icon="⚠️")
+            return
         serials = add_movement_batch(
-            cfg["prefix"], cfg["digits"], manufacturer, mtype, mdate.strftime("%Y-%m-%d"), int(qty)
+            self.prefix, self.digits, manufacturer, mtype, mdate.strftime("%Y-%m-%d"),
+            int(qty), st.user.oid,
         )
         rng = serials[0] if len(serials) == 1 else f"{serials[0]}~{serials[-1]}"
         st.toast(f"{MOVEMENT_LABEL[mtype]} {rng} ({len(serials)}건) 등록됨", icon="✅")
         st.rerun()
 
-st.divider()
+    # ── Raw Data (읽기 전용) ──────────────────────────────────
+    def render_records(self) -> None:
+        st.subheader("Raw Data")
 
-# ── Raw Data (읽기 전용) ──────────────────────────────────
-st.subheader("Raw Data")
+        # 이 보드(prefix)의 행만 추려 serial_number 오름차순으로 표시한다.
+        df = load_movements()
+        df = df[df["serial_number"].str.startswith(self.prefix)]
+        if df.empty:
+            st.info("입출고된 데이터가 없습니다.")
+            return
+        df = df.sort_values("serial_number", ascending=True)
 
-if not len(movements_df):
-    st.info("입출고된 데이터가 없습니다.")
-    st.stop()
+        col1, col2 = st.columns(2)
+        col1.metric("입고수량", int((df["type"] == "Inbound").sum()))
+        col2.metric("출고수량", int((df["type"] == "Outbound").sum()))
 
-# 보드별 입고 수량(type=Inbound) — 보드 prefix로 serial을 집계해 보드마다 한 칸씩 표시한다.
-inbound = movements_df[movements_df["type"] == "Inbound"]
-for col, label in zip(st.columns(len(BOARD_LABELS)), BOARD_LABELS):
-    prefix = BOARD_CONFIG[label]["prefix"]
-    qty = int(inbound["serial_number"].str.startswith(prefix).sum()) if len(inbound) else 0
-    col.metric(label, qty)
+        # ── 삭제 (관리자) ─────────────────────────────────────
+        # 실수 삭제를 막으려 확인 다이얼로그를 띄운다. 확인 시 st.rerun()으로 다이얼로그를 닫고 화면을 갱신한다.
+        @st.dialog("입출고 삭제 확인")
+        def _confirm_delete(serial: str) -> None:
+            st.markdown(f"**{serial}** 의 입출고 기록을 삭제합니다.")
+            cancel_col, ok_col = st.columns(2)  # 취소 좌측 · 확인/삭제 우측
+            if ok_col.button(":material/check: 확인", type="primary", width="stretch",
+                             key=self._key("del_ok")):
+                delete_movement(serial)
+                # rerun 후에도 유지되는 토스트로 알리려 메시지를 남긴다(다이얼로그가 닫힌 뒤 표시).
+                st.session_state[self._key("del_msg")] = f"**{serial}** 입출고 기록이 삭제되었습니다."
+                st.rerun()
+            if cancel_col.button(":material/close: 취소", width="stretch", key=self._key("del_cancel")):
+                st.rerun()
 
-# Raw Data는 원본 컬럼명(serial_number, manufacturer, type, date) 그대로 표시한다.
-st.dataframe(movements_df, width="stretch", hide_index=True)
+        # 직전 실행에서 삭제됐다면 다이얼로그가 닫힌 뒤 토스트로 알린다.
+        msg = st.session_state.pop(self._key("del_msg"), None)
+        if msg:
+            st.toast(msg, icon="🗑️")
 
-# ── 삭제 (관리자) ─────────────────────────────────────────
-# 실수 삭제를 막으려 확인 다이얼로그를 띄운다. 확인 시 st.rerun()으로 다이얼로그를 닫고 화면을 갱신한다.
-@st.dialog("입출고 삭제 확인")
-def _confirm_delete(serial: str) -> None:
-    st.markdown(f"**{serial}** 의 입출고 기록을 삭제합니다.")
-    cancel_col, ok_col = st.columns(2)
-    if ok_col.button(":material/check: 확인", type="primary", width="stretch", key="mv_del_ok"):
-        delete_movement(serial)
-        st.toast(f"**{serial}** 입출고 기록이 삭제되었습니다.", icon="🗑️")
-        st.rerun()
-    if cancel_col.button(":material/close: 취소", width="stretch", key="mv_del_cancel"):
-        st.rerun()
+        # Serial 필터: 미선택이면 전체 표시, 선택 시 해당 Serial만 표시(단일 선택). 선택한 Serial이 삭제 대상이다.
+        sel_col, btn_col = st.columns([3, 1], vertical_alignment="bottom")
+        selected = sel_col.selectbox("Serial 번호 선택", df["serial_number"].tolist(), index=None,
+                                     placeholder="전체 (선택 시 해당 Serial만 표시)",
+                                     key=self._key("filter_serial"))
+        if btn_col.button(":material/delete: 삭제", type="primary", width="stretch",
+                          disabled=selected is None, key=self._key("del_btn")):
+            _confirm_delete(selected)
 
-if len(movements_df):
-    sel_col, btn_col = st.columns([3, 1], vertical_alignment="bottom")
-    del_serial = sel_col.selectbox("삭제할 Serial", options=movements_df["serial_number"].tolist())
-    if btn_col.button("삭제", width="stretch", icon=":material/delete:"):
-        _confirm_delete(del_serial)
+        # 선택 시 해당 Serial만 표시(미선택이면 전체).
+        view = df if selected is None else df[df["serial_number"] == selected]
+        # verify_by에는 등록자의 불변 oid가 저장돼 있으므로 화면에는 현재 이름으로 변환한다.
+        # 매핑에 없는 값(레거시 '이진수'·미등록 oid)은 저장값 그대로 폴백한다.
+        names = user_names()
+        view = view.assign(verify_by=view["verify_by"].map(names).fillna(view["verify_by"]))
+        st.dataframe(view, width="stretch", hide_index=True)
+
+
+# ── 탭 구성 ───────────────────────────────────────────────
+for tab, label in zip(st.tabs(BOARD_LABELS), BOARD_LABELS):
+    board = MovementBoard(label, BOARD_CONFIG[label])
+    with tab:
+        st.subheader(label)
+        board.render_register()
+        st.divider()
+        board.render_records()
