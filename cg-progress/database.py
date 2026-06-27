@@ -308,6 +308,20 @@ def add_movement_batch(prefix: str, digits: int, manufacturer: str,
     load_movements.clear()
     return serials
 
+def outbound_serial(serial: str, date: str, verify_by: str) -> int:
+    """입고된(type='Inbound') Serial을 출고 처리한다 — type='Outbound', date·verify_by를 갱신한다.
+    출고는 새 번호를 채번하지 않고 기존 입고 Serial의 상태만 전환한다(serial_number가 PK라 1행 유지).
+    이미 출고됐거나 대상이 없으면 0을 반환한다 — 동시 처리(경합)를 막는 가드."""
+    conn = get_conn()
+    with conn:
+        cur = conn.execute(
+            "UPDATE PCBA_Movement SET type='Outbound', date=?, verify_by=?"
+            " WHERE serial_number=? AND type='Inbound'",
+            (str(date), str(verify_by), str(serial)),
+        )
+    load_movements.clear()
+    return cur.rowcount
+
 def delete_movement(serial: str):
     """해당 Serial의 입출고 행을 삭제한다(Raw Data의 관리자 삭제용)."""
     conn = get_conn()
