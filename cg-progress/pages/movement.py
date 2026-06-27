@@ -1,7 +1,8 @@
 import streamlit as st
 
 from constants import BOARD_CONFIG, BOARD_LABELS, MOVEMENT_LABEL, MOVEMENT_TYPES
-from database import add_movement_batch, delete_movement, load_movements, user_names
+from database import (add_movement_batch, delete_movement, load_movements,
+                      outbound_serial, user_names)
 
 role = st.session_state.get("role", "viewer")
 
@@ -10,7 +11,7 @@ if role != "admin":
     st.stop()
 
 st.title("입출고 관리")
-st.caption("수량을 입력하면 serial_number가 순차 채번되어 등록됩니다.")
+st.caption("입고는 수량만큼 serial_number가 순차 채번되고, 출고는 입고된 Serial 중에서 선택합니다.")
 
 
 class MovementBoard:
@@ -29,17 +30,25 @@ class MovementBoard:
         return f"{self.prefix}_{name}"
 
     # ── 등록 패널 ─────────────────────────────────────────────
-    # 수량을 입력하면, 이 보드의 기존 최대 번호 다음부터 수량만큼 serial을 채번한다.
-    # 예: H 보드에 H0020까지 있으면 10 입력 → H0021~H0030. type은 DB에 영문 저장, 화면엔 한글 라벨.
+    # 입고: 수량만큼 이 보드의 기존 최대 번호 다음부터 serial을 순차 채번한다(예: H0020까지 → 10 → H0021~H0030).
+    # 출고: 새 번호를 채번하지 않고, 입고된(type=Inbound) Serial을 multiselect로 골라 출고 처리한다.
     def render_register(self) -> None:
-        with st.form(self._key("add_movement"), clear_on_submit=True):
-            # 1행: 생산 업체 / 2행: 유형·일자·수량(가로로 나란히)
+        # 유형은 폼 '밖'에 둬 선택 즉시 rerun → 입고/출고에 맞는 입력 칸으로 전환한다.
+        # (폼 안 위젯은 제출 전까지 rerun을 일으키지 않아 칸을 전환할 수 없다.)
+        mtype = st.selectbox("유형", options=MOVEMENT_TYPES,
+                             format_func=MOVEMENT_LABEL.get, key=self._key("mtype"))
+        if mtype == "Inbound":
+            self._render_inbound_form()
+        else:
+            self._render_outbound_form()
+
+    def _render_inbound_form(self) -> None:
+        with st.form(self._key("inbound_form"), clear_on_submit=True):
+            # 1행: 생산 업체 / 2행: 일자·수량(가로로 나란히)
             manufacturer = st.text_input("생산 업체", key=self._key("mf")).strip()
-            c1, c2, c3 = st.columns(3)
-            mtype = c1.selectbox("유형", options=MOVEMENT_TYPES,
-                                 format_func=MOVEMENT_LABEL.get, key=self._key("mtype"))
-            mdate = c2.date_input("일자", key=self._key("mdate"))
-            qty = c3.number_input("수량", min_value=1, value=1, step=1, key=self._key("qty"))
+            c1, c2 = st.columns(2)
+            mdate = c1.date_input("일자", key=self._key("in_date"))
+            qty = c2.number_input("수량", min_value=1, value=1, step=1, key=self._key("qty"))
             submitted = st.form_submit_button("등록", type="primary", width="stretch")
 
         if not submitted:
@@ -48,11 +57,36 @@ class MovementBoard:
             st.toast("제조사를 입력하세요.", icon="⚠️")
             return
         serials = add_movement_batch(
-            self.prefix, self.digits, manufacturer, mtype, mdate.strftime("%Y-%m-%d"),
+            self.prefix, self.digits, manufacturer, "Inbound", mdate.strftime("%Y-%m-%d"),
             int(qty), st.user.oid,
         )
         rng = serials[0] if len(serials) == 1 else f"{serials[0]}~{serials[-1]}"
-        st.toast(f"{MOVEMENT_LABEL[mtype]} {rng} ({len(serials)}건) 등록됨", icon="✅")
+        st.toast(f"입고 {rng} ({len(serials)}건) 등록됨", icon="✅")
+        st.rerun()
+
+    def _render_outbound_form(self) -> None:
+        # 입고된(type=Inbound) Serial만 출고 후보로 보여준다.
+        df = load_movements()
+        inbounded = sorted(
+            df[df["serial_number"].str.startswith(self.prefix) & (df["type"] == "Inbound")]
+            ["serial_number"].tolist()
+        )
+        with st.form(self._key("outbound_form"), clear_on_submit=True):
+            # 1행: Serial 번호(multiselect) / 2행: 일자
+            serials = st.multiselect("Serial 번호", inbounded, key=self._key("out_serials"),
+                                     placeholder="출고할 Serial 선택")
+            mdate = st.date_input("일자", key=self._key("out_date"))
+            submitted = st.form_submit_button("등록", type="primary", width="stretch")
+
+        if not submitted:
+            return
+        if not serials:
+            st.toast("출고할 Serial을 선택하세요.", icon="⚠️")
+            return
+        date = mdate.strftime("%Y-%m-%d")
+        for s in serials:
+            outbound_serial(s, date, st.user.oid)
+        st.toast(f"출고 {len(serials)}건 등록됨", icon="✅")
         st.rerun()
 
     # ── Raw Data (읽기 전용) ──────────────────────────────────
