@@ -155,6 +155,12 @@ COATING_POINTS = ["T1", "T2", "T3", "T4", "B1", "B2", "B3", "B4"]
 # 임시 기준값: 최소 두께만 두고(모두 99) 상한은 없음. 단위는 마이크로미터(μm).
 COATING_MIN = 99
 COATING_UNIT = "μm"
+# 코팅 8포인트 측정 스펙(모든 보드 공통). 상한(max) 없이 하한(min)만 임시 99.
+# measurement_verdict·summary가 기대하는 min/max/unit 키 구조를 그대로 따른다.
+COATING_STEPS = [{"point": p, "min": COATING_MIN, "max": None, "unit": COATING_UNIT}
+                 for p in COATING_POINTS]
+# 코팅 포인트(T1~B4) → 양식 측정값 행 순번(1~8). 양식 6행부터 COATING_POINTS 순서로 들어간다.
+COATING_POINT_ITEM = {p: i + 1 for i, p in enumerate(COATING_POINTS)}
 
 # 사용자 계정 상태. Enable(사용)·Disable(비활성). 관리자 셀렉트 옵션의 단일 출처.
 USER_STATUS = ["Enable", "Disable"]
@@ -222,13 +228,6 @@ def summary_records(steps: list[dict], values: dict[int, object]) -> list[dict]:
     ]
 
 
-def coating_steps() -> list[dict]:
-    """코팅 8포인트의 측정 스펙(모든 보드 공통). 상한(max) 없이 하한(min)만 임시 99, 단위 μm.
-    measurement_verdict·summary가 기대하는 min/max/unit 키 구조를 그대로 따른다."""
-    return [{"point": p, "min": COATING_MIN, "max": None, "unit": COATING_UNIT}
-            for p in COATING_POINTS]
-
-
 def coating_summary_records(values: dict[int, object]) -> list[dict]:
     """코팅 측정 요약 표 행 목록 — 입력 확인 모달과 검수 리스트가 공유한다(동일 출력).
     컬럼: Point · MIN · MAX · UNIT · Measurements · P/F.
@@ -237,5 +236,5 @@ def coating_summary_records(values: dict[int, object]) -> list[dict]:
         {"Point": s["point"], "MIN": s["min"], "MAX": s["max"], "UNIT": s["unit"],
          "Measurements": values.get(i, ""),
          "P/F": measurement_verdict(s, values.get(i, ""))}
-        for i, s in enumerate(coating_steps())
+        for i, s in enumerate(COATING_STEPS)
     ]

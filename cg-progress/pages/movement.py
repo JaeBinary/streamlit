@@ -2,7 +2,8 @@ import streamlit as st
 
 from constants import BOARD_CONFIG, BOARD_LABELS, MOVEMENT_LABEL, MOVEMENT_TYPES
 from database import (add_movement_batch, delete_movement, load_movements,
-                      outbound_serial, user_names)
+                      outbound_serial)
+from ui import confirm_dialog, flash, map_oids
 
 role = st.session_state.get("role", "viewer")
 
@@ -18,7 +19,7 @@ class MovementBoard:
     """보드 한 종의 입출고 등록 + 조회(Raw Data) 화면.
 
     보드는 탭으로 고정되므로 등록 폼에 '보드 종류' 선택은 없다(탭의 보드로 고정).
-    위젯·세션 key는 모두 prefix로 네임스페이스해 탭 간 충돌을 막는다(2_functional_test.py와 동일).
+    위젯·세션 key는 모두 prefix로 네임스페이스해 탭 간 충돌을 막는다(functional_test.py와 동일).
     """
 
     def __init__(self, label: str, cfg: dict) -> None:
@@ -106,24 +107,12 @@ class MovementBoard:
         col2.metric("출고수량", int((df["type"] == "Outbound").sum()))
 
         # ── 삭제 (관리자) ─────────────────────────────────────
-        # 실수 삭제를 막으려 확인 다이얼로그를 띄운다. 확인 시 st.rerun()으로 다이얼로그를 닫고 화면을 갱신한다.
-        @st.dialog("입출고 삭제 확인")
-        def _confirm_delete(serial: str) -> None:
-            st.markdown(f"**{serial}** 의 입출고 기록을 삭제합니다.")
-            cancel_col, ok_col = st.columns(2)  # 취소 좌측 · 확인/삭제 우측
-            if ok_col.button(":material/check: 확인", type="primary", width="stretch",
-                             key=self._key("del_ok")):
-                delete_movement(serial)
-                # rerun 후에도 유지되는 토스트로 알리려 메시지를 남긴다(다이얼로그가 닫힌 뒤 표시).
-                st.session_state[self._key("del_msg")] = f"**{serial}** 입출고 기록이 삭제되었습니다."
-                st.rerun()
-            if cancel_col.button(":material/close: 취소", width="stretch", key=self._key("del_cancel")):
-                st.rerun()
-
         # 직전 실행에서 삭제됐다면 다이얼로그가 닫힌 뒤 토스트로 알린다.
-        msg = st.session_state.pop(self._key("del_msg"), None)
-        if msg:
-            st.toast(msg, icon="🗑️")
+        flash(self._key("del_msg"), icon="🗑️")
+
+        def _delete(serial: str) -> None:
+            delete_movement(serial)
+            st.session_state[self._key("del_msg")] = f"**{serial}** 입출고 기록이 삭제되었습니다."
 
         # Serial 필터: 미선택이면 전체 표시, 선택 시 해당 Serial만 표시(단일 선택). 선택한 Serial이 삭제 대상이다.
         sel_col, btn_col = st.columns([3, 1], vertical_alignment="bottom")
@@ -132,14 +121,12 @@ class MovementBoard:
                                      key=self._key("filter_serial"))
         if btn_col.button(":material/delete: 삭제", type="primary", width="stretch",
                           disabled=selected is None, key=self._key("del_btn")):
-            _confirm_delete(selected)
+            confirm_dialog("입출고 삭제 확인", body=f"**{selected}** 의 입출고 기록을 삭제합니다.",
+                           ok_label=":material/check: 확인", on_confirm=lambda: _delete(selected))
 
-        # 선택 시 해당 Serial만 표시(미선택이면 전체).
+        # 선택 시 해당 Serial만 표시(미선택이면 전체). verify_by(oid)는 현재 이름으로 변환.
         view = df if selected is None else df[df["serial_number"] == selected]
-        # verify_by에는 등록자의 불변 oid가 저장돼 있으므로 화면에는 현재 이름으로 변환한다.
-        # 매핑에 없는 값(레거시 '이진수'·미등록 oid)은 저장값 그대로 폴백한다.
-        names = user_names()
-        view = view.assign(verify_by=view["verify_by"].map(names).fillna(view["verify_by"]))
+        view = map_oids(view, "verify_by")
         st.dataframe(view, width="stretch", hide_index=True)
 
 

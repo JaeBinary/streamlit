@@ -87,9 +87,9 @@ with st.sidebar:
 pages = {
     # 빈 문자열 키는 머리글 없이 렌더링되어 "전체 진척도"가 최상단에 독립 표시된다.
     "": [
-        st.Page("pages/1_main.py",              title="전체 진척도",  icon=":material/bar_chart_4_bars:",      default=True),
-        st.Page("pages/2_functional_test.py",   title="기능 테스트",  icon=":material/developer_board:"),
-        st.Page("pages/3_conformal_coating.py", title="컨포멀 코팅",  icon=":material/fragrance:"),
+        st.Page("pages/main.py",              title="전체 진척도",  icon=":material/bar_chart_4_bars:",      default=True),
+        st.Page("pages/functional_test.py",   title="기능 테스트",  icon=":material/developer_board:"),
+        st.Page("pages/conformal_coating.py", title="컨포멀 코팅",  icon=":material/fragrance:"),
     ],
 }
 
