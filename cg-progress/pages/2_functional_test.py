@@ -378,7 +378,7 @@ class BoardWizard:
                 ":material/download: Download XLSX",
                 data=build_filled_form(self.form["file"], self.form["sheet"],
                                        self.form["serial_col"], self.prefix, self.total, view),
-                file_name=f"{self.form['sheet']}_{datetime.now():%Y%m%d}.xlsx",
+                file_name=f"{self.form['file'].removesuffix('.xlsx')}_{datetime.now():%y%m%d}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 disabled=view.empty, width="stretch", key=self._key("dl_form"),
             )
