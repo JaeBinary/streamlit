@@ -68,12 +68,14 @@ def get_conn() -> sqlite3.Connection:
         )
     """)
     # PCBA 입출고 이력. serial_number가 PK(Serial당 1행) — type은 Inbound/Outbound.
+    # verify_by: 등록한 사용자의 불변 oid(레거시 행은 이름 문자열 '이진수'). 화면 표시 시 oid→이름 변환.
     conn.execute("""
         CREATE TABLE IF NOT EXISTS PCBA_Movement (
             serial_number TEXT NOT NULL,
             manufacturer  TEXT NOT NULL,
             type          TEXT NOT NULL,
             date          TEXT NOT NULL,
+            verify_by     TEXT NOT NULL,
             PRIMARY KEY (serial_number)
         )
     """)
@@ -275,15 +277,16 @@ def delete_coating_serial(serial):
 def load_movements() -> pd.DataFrame:
     conn = get_conn()
     return pd.read_sql(
-        "SELECT serial_number, manufacturer, type, date FROM PCBA_Movement"
+        "SELECT serial_number, manufacturer, type, date, verify_by FROM PCBA_Movement"
         " ORDER BY date DESC, serial_number",
         conn,
     )
 
 def add_movement_batch(prefix: str, digits: int, manufacturer: str,
-                       mtype: str, date: str, qty: int) -> list[str]:
+                       mtype: str, date: str, qty: int, verify_by: str) -> list[str]:
     """선택한 보드(prefix)의 PCBA_Movement 기존 최대 번호 다음부터 qty개의 serial을 순차 생성해 저장한다.
     예: 해당 보드에 H0020까지 있으면 qty=10 → H0021~H0030. 빈 보드면 0001부터.
+    verify_by에는 등록한 사용자의 불변 oid를 저장한다(화면 표시 시 oid→현재 이름으로 변환).
     생성된 serial 목록을 반환한다."""
     conn = get_conn()
     with conn:
@@ -299,8 +302,8 @@ def add_movement_batch(prefix: str, digits: int, manufacturer: str,
                 max_num = max(max_num, int(tail))
         serials = [f"{prefix}{n:0{digits}d}" for n in range(max_num + 1, max_num + 1 + qty)]
         conn.executemany(
-            "INSERT INTO PCBA_Movement (serial_number, manufacturer, type, date) VALUES (?,?,?,?)",
-            [(s, str(manufacturer), str(mtype), str(date)) for s in serials],
+            "INSERT INTO PCBA_Movement (serial_number, manufacturer, type, date, verify_by) VALUES (?,?,?,?,?)",
+            [(s, str(manufacturer), str(mtype), str(date), str(verify_by)) for s in serials],
         )
     load_movements.clear()
     return serials
