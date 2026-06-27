@@ -218,3 +218,7 @@ __marimo__/
 # Streamlit
 cg-progress/.streamlit/secrets.toml
 cg-progress/form/
+# 프로젝트 소스 모듈 디렉터리 — 위 Python 템플릿의 빌드용 `lib/` 무시 규칙에서 .py 소스만 제외한다.
+# (__pycache__·*.pyc는 위 규칙대로 계속 무시)
+!cg-progress/lib/
+!cg-progress/lib/*.py

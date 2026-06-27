@@ -11,13 +11,15 @@
 import io
 from copy import copy
 from datetime import datetime
+from pathlib import Path
 
 import openpyxl
 import streamlit as st
 from openpyxl.formatting.formatting import ConditionalFormattingList
 from openpyxl.utils import column_index_from_string, get_column_letter
 
-FORM_DIR = "form"
+# 이 파일은 lib/ 아래 있으므로 프로젝트 루트는 parent.parent다(form/은 루트 기준).
+FORM_DIR = Path(__file__).parent.parent / "form"
 
 # 양식 공통 행 좌표 (1-base). 5행은 헤더, 6행부터 측정값(test_item 1 → 6행).
 SERIAL_ROW, DATE_ROW, TESTER_ROW = 2, 3, 4
@@ -91,7 +93,7 @@ def build_filled_form(form_file: str, form_sheet: str, serial_col: str,
     데이터 검증까지 복제해 동일 포맷을 유지한다(설명/MIN/MAX·헤더·하단 결과 행은 그대로).
     @st.cache_data: st.tabs가 매 rerun에 모든 탭을 렌더해도 view가 그대로면 재생성하지 않는다.
     """
-    wb = openpyxl.load_workbook(f"{FORM_DIR}/{form_file}")
+    wb = openpyxl.load_workbook(FORM_DIR / form_file)
     ws = wb[form_sheet]
 
     col0 = column_index_from_string(serial_col)

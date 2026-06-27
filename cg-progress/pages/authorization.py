@@ -1,7 +1,7 @@
 import streamlit as st
 
-from constants import PROTECTED_OID, ROLE_LABEL, USER_STATUS
-from database import load_users, update_user
+from lib.constants import PROTECTED_OID, ROLE_LABEL, USER_STATUS
+from lib.database import load_users, update_user
 
 role = st.session_state.get("role", "viewer")
 
@@ -62,9 +62,7 @@ if submitted:
     elif admins_after == 0:
         st.error("관리자(admin)는 최소 1명이 필요합니다. 변경사항을 저장하지 않았습니다.")
     else:
-        update_user(sel_email, new_name, new_role, new_status)
-        # load_users는 @st.cache_data라 캐시를 비워야 표·메트릭이 즉시 갱신된다.
-        load_users.clear()
+        update_user(sel_email, new_name, new_role, new_status)  # 내부에서 캐시(load_users·user_names)를 비운다
         st.toast(f"**{new_name}** 저장됨 · 대상자 재로그인 후 적용", icon="✅")
         st.rerun()
 

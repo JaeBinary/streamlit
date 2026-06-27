@@ -5,7 +5,8 @@ from pathlib import Path
 
 import pandas as pd
 
-DB_PATH = Path(__file__).parent / "data" / "cg_progress.db"
+# 이 파일은 lib/ 아래 있으므로 프로젝트 루트는 parent.parent다(data/는 루트 기준).
+DB_PATH = Path(__file__).parent.parent / "data" / "cg_progress.db"
 DB_PATH.parent.mkdir(exist_ok=True)
 
 
@@ -153,69 +154,85 @@ def user_names() -> dict:
     return {oid: name for oid, name in rows}
 
 
-# ── Records ───────────────────────────────────────────────
+# ── Records (기능 테스트 · 코팅 공용) ─────────────────────
+# 두 테이블은 검수 흐름·경합 가드가 동일하고 (테이블, item 컬럼, tester 컬럼)만 다르다.
+# 아래 프라이빗 헬퍼가 그 차이를 인자로 받아 한 번에 처리하고, 공개 함수는 테이블별 인자만
+# 채워 위임한다. 컬럼명(test_item/coating_point, test_By/test_by)은 라이브 DB 스키마라 그대로 쓴다.
+
+def _insert(table: str, item_col: str, tester_col: str, rows: list, load_fn):
+    """rows: list of (serial, item, test_datetime, tester, measurements). 한 번에 여러 건 저장한다.
+    test_datetime은 'YYYY-MM-DD HH:MM:SS' 문자열. 저장 시 verify_*는 NULL(=검수 중)로 둔다 —
+    관리자가 승인하면 채워진다. 복합키(serial, item)가 겹치면 덮어쓴다(INSERT OR REPLACE → 재검수)."""
+    conn = get_conn()
+    with conn:
+        conn.executemany(
+            f"INSERT OR REPLACE INTO {table}"
+            f" (serial_number, {item_col}, measurements, test_datetime, {tester_col}, verify_datetime, verify_by)"
+            " VALUES (?,?,?,?,?,NULL,NULL)",
+            [(str(s), str(it), _meas(m), str(d), str(tb)) for s, it, d, tb, m in rows],
+        )
+    load_fn.clear()
+
+def _verify(table: str, serial, verify_by, load_fn) -> int:
+    """해당 Serial의 '검수 중'(verify_by IS NULL) 행만 승인 처리한다(verify_datetime=현재시각, verify_by=승인자 oid).
+    이미 처리/삭제되어 대상이 없으면 0을 반환한다 — 동시 접속 중 중복 처리(경합)를 막는 가드."""
+    conn = get_conn()
+    with conn:
+        cur = conn.execute(
+            f"UPDATE {table} SET verify_datetime=?, verify_by=? WHERE serial_number=? AND verify_by IS NULL",
+            (_now(), str(verify_by), str(serial)),
+        )
+    load_fn.clear()
+    return cur.rowcount
+
+def _delete_pending(table: str, tester_col: str, serial, owner_oid, load_fn) -> int:
+    """'검수 중'(verify_by IS NULL) 행만 삭제한다 — 검수 리스트의 반려(관리자)·취소(편집자)용.
+    owner_oid를 주면 본인 요청분({tester_col}=oid)으로 제한한다(편집자). 대상이 없으면 0(경합 가드)."""
+    conn = get_conn()
+    sql = f"DELETE FROM {table} WHERE serial_number=? AND verify_by IS NULL"
+    params = [str(serial)]
+    if owner_oid is not None:
+        sql += f" AND {tester_col}=?"
+        params.append(str(owner_oid))
+    with conn:
+        cur = conn.execute(sql, params)
+    load_fn.clear()
+    return cur.rowcount
+
+def _delete_serial(table: str, serial, load_fn):
+    """해당 Serial의 모든 행을 삭제한다(상태 무관 — Raw Data의 관리자 삭제용)."""
+    conn = get_conn()
+    with conn:
+        conn.execute(f"DELETE FROM {table} WHERE serial_number=?", (str(serial),))
+    load_fn.clear()
+
+
+# ── 기능 테스트 ───────────────────────────────────────────
 
 @st.cache_data(ttl=60)
 def load_records() -> pd.DataFrame:
     """모든 레코드를 조회한다(전체 공개). verify_by/verify_datetime이 NULL이면 '검수 중'이다."""
     conn = get_conn()
     # test_item은 '1'~'25' 문자열이므로 숫자 순으로 정렬한다.
-    order = "ORDER BY CAST(test_item AS INTEGER), serial_number"
-    return pd.read_sql(f"SELECT * FROM PCBA_Functional_test {order}", conn)
+    return pd.read_sql(
+        "SELECT * FROM PCBA_Functional_test ORDER BY CAST(test_item AS INTEGER), serial_number", conn)
 
 def insert_records(rows: list):
-    """rows: list of (serial, test_item, test_datetime, tested_by, measurements). 한 번에 여러 건 저장.
-    test_datetime은 'YYYY-MM-DD HH:MM:SS' 형식 문자열(값은 시각까지, 표시는 호출부에서 date만).
-    저장 시 verify_datetime/verify_by는 NULL(=검수 중)로 둔다 — 관리자가 검수 리스트에서 승인하면 채워진다.
-    (serial, test_item) 복합키가 겹치면 기존 행을 덮어쓴다(INSERT OR REPLACE → 재저장 시 다시 검수 중)."""
-    conn = get_conn()
-    with conn:
-        conn.executemany(
-            "INSERT OR REPLACE INTO PCBA_Functional_test"
-            " (serial_number, test_item, measurements, test_datetime, test_By, verify_datetime, verify_by)"
-            " VALUES (?,?,?,?,?,NULL,NULL)",
-            [(str(s), str(ti), _meas(m), str(d), str(tb)) for s, ti, d, tb, m in rows],
-        )
-    load_records.clear()
+    """rows: list of (serial, test_item, test_datetime, tested_by, measurements)."""
+    _insert("PCBA_Functional_test", "test_item", "test_By", rows, load_records)
 
-def verify_serial(serial, verify_by):
-    """해당 Serial의 '검수 중'(verify_by IS NULL) 행만 승인 처리한다(verify_datetime=현재시각, verify_by=승인자 oid).
-    이미 승인되었거나 삭제되어 대상이 없으면 0을 반환한다 — 동시 접속 시 중복 처리(경합)를 막는 가드.
-    반환값(영향 행 수)으로 호출부가 실제 처리 여부를 판단한다."""
-    conn = get_conn()
-    with conn:
-        cur = conn.execute(
-            "UPDATE PCBA_Functional_test SET verify_datetime=?, verify_by=? WHERE serial_number=? AND verify_by IS NULL",
-            (_now(), str(verify_by), str(serial)),
-        )
-    load_records.clear()
-    return cur.rowcount
+def verify_serial(serial, verify_by) -> int:
+    return _verify("PCBA_Functional_test", serial, verify_by, load_records)
 
-def delete_pending(serial, owner_oid=None):
-    """'검수 중'(verify_by IS NULL)인 행만 삭제한다 — 검수 리스트의 반려(관리자)·취소(편집자)용.
-    owner_oid를 주면 본인이 요청한 건(tested_by=oid)으로 제한한다(편집자). 이미 승인/삭제되어 대상이
-    없으면 0을 반환한다 — 동시 접속 시 이미 처리된 건을 잘못 삭제하는 것을 막는 경합 가드."""
-    conn = get_conn()
-    sql = "DELETE FROM PCBA_Functional_test WHERE serial_number=? AND verify_by IS NULL"
-    params = [str(serial)]
-    if owner_oid is not None:
-        sql += " AND test_By=?"
-        params.append(str(owner_oid))
-    with conn:
-        cur = conn.execute(sql, params)
-    load_records.clear()
-    return cur.rowcount
+def delete_pending(serial, owner_oid=None) -> int:
+    return _delete_pending("PCBA_Functional_test", "test_By", serial, owner_oid, load_records)
 
 def delete_serial(serial):
-    """해당 Serial의 모든 test_item 행을 삭제한다(상태 무관 — Raw Data의 관리자 삭제용)."""
-    conn = get_conn()
-    with conn:
-        conn.execute("DELETE FROM PCBA_Functional_test WHERE serial_number=?", (str(serial),))
-    load_records.clear()
+    _delete_serial("PCBA_Functional_test", serial, load_records)
 
 
-# ── Coating Records ───────────────────────────────────────
-# 기능 테스트(위 Records)와 검수 흐름·경합 가드가 동일하다. test_item → coating_point만 다르다.
+# ── 컨포멀 코팅 ───────────────────────────────────────────
+# test_item → coating_point, test_By → test_by 만 다르고 흐름은 기능 테스트와 동일하다.
 
 @st.cache_data(ttl=60)
 def load_coating_records() -> pd.DataFrame:
@@ -224,50 +241,17 @@ def load_coating_records() -> pd.DataFrame:
     return pd.read_sql("SELECT * FROM PCBA_Conformal_Coating ORDER BY serial_number, coating_point", conn)
 
 def insert_coating_records(rows: list):
-    """rows: list of (serial, coating_point, test_datetime, test_by, measurements). 한 번에 여러 건 저장.
-    저장 시 verify_datetime/verify_by는 NULL(=검수 중)로 둔다 — 관리자가 검수 리스트에서 승인하면 채워진다.
-    (serial, coating_point) 복합키가 겹치면 기존 행을 덮어쓴다(INSERT OR REPLACE → 재저장 시 다시 검수 중)."""
-    conn = get_conn()
-    with conn:
-        conn.executemany(
-            "INSERT OR REPLACE INTO PCBA_Conformal_Coating"
-            " (serial_number, coating_point, measurements, test_datetime, test_by, verify_datetime, verify_by)"
-            " VALUES (?,?,?,?,?,NULL,NULL)",
-            [(str(s), str(cp), _meas(m), str(d), str(tb)) for s, cp, d, tb, m in rows],
-        )
-    load_coating_records.clear()
+    """rows: list of (serial, coating_point, test_datetime, test_by, measurements)."""
+    _insert("PCBA_Conformal_Coating", "coating_point", "test_by", rows, load_coating_records)
 
-def verify_coating_serial(serial, verify_by):
-    """해당 Serial의 '검수 중'(verify_by IS NULL) 코팅 행만 승인 처리한다. 대상이 없으면 0을 반환한다(경합 가드)."""
-    conn = get_conn()
-    with conn:
-        cur = conn.execute(
-            "UPDATE PCBA_Conformal_Coating SET verify_datetime=?, verify_by=? WHERE serial_number=? AND verify_by IS NULL",
-            (_now(), str(verify_by), str(serial)),
-        )
-    load_coating_records.clear()
-    return cur.rowcount
+def verify_coating_serial(serial, verify_by) -> int:
+    return _verify("PCBA_Conformal_Coating", serial, verify_by, load_coating_records)
 
-def delete_coating_pending(serial, owner_oid=None):
-    """'검수 중'(verify_by IS NULL)인 코팅 행만 삭제한다 — 검수 리스트의 반려(관리자)·취소(편집자)용.
-    owner_oid를 주면 본인이 요청한 건(test_by=oid)으로 제한한다(편집자). 대상이 없으면 0을 반환한다(경합 가드)."""
-    conn = get_conn()
-    sql = "DELETE FROM PCBA_Conformal_Coating WHERE serial_number=? AND verify_by IS NULL"
-    params = [str(serial)]
-    if owner_oid is not None:
-        sql += " AND test_by=?"
-        params.append(str(owner_oid))
-    with conn:
-        cur = conn.execute(sql, params)
-    load_coating_records.clear()
-    return cur.rowcount
+def delete_coating_pending(serial, owner_oid=None) -> int:
+    return _delete_pending("PCBA_Conformal_Coating", "test_by", serial, owner_oid, load_coating_records)
 
 def delete_coating_serial(serial):
-    """해당 Serial의 모든 코팅 포인트 행을 삭제한다(상태 무관 — Raw Data의 관리자 삭제용)."""
-    conn = get_conn()
-    with conn:
-        conn.execute("DELETE FROM PCBA_Conformal_Coating WHERE serial_number=?", (str(serial),))
-    load_coating_records.clear()
+    _delete_serial("PCBA_Conformal_Coating", serial, load_coating_records)
 
 
 # ── Movement (입출고) ─────────────────────────────────────
