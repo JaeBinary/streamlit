@@ -114,7 +114,11 @@ def build_filled_form(form_file: str, form_sheet: str, serial_col: str,
         sub = view[view["serial_number"] == serial]
         first = sub.iloc[0]
         ws.cell(SERIAL_ROW, col).value = int(serial[len(prefix):])
-        ws.cell(DATE_ROW, col).value = datetime.strptime(str(first["test_datetime"])[:10], "%Y-%m-%d")
+        # Test Date: 시간 제외 날짜만. date 객체 + 'yyyy-mm-dd' 서식으로 YYYY-MM-DD 표시 고정
+        # (양식 셀 기본 서식이 mm-dd-yy거나 datetime이면 시간이 노출될 수 있어 명시 지정).
+        date_cell = ws.cell(DATE_ROW, col)
+        date_cell.value = datetime.strptime(str(first["test_datetime"])[:10], "%Y-%m-%d").date()
+        date_cell.number_format = "yyyy-mm-dd"
         ws.cell(TESTER_ROW, col).value = first["test_By"]               # view에서 이미 oid→이름
         for _, rec in sub.iterrows():
             item = int(rec["test_item"])
