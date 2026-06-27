@@ -19,37 +19,36 @@ counts = users_df["role"].value_counts()
 # 표는 읽기 전용으로 두고, 편집은 이 패널에서만 한다. name은 중복될 수 있으므로
 # 드롭박스는 PK인 email을 값으로 쓰고 format_func로 name을 보여준다.
 name_by_email = dict(zip(users_df["email"], users_df["name"]))
-with st.container(border=True):
-    # 첫행: 사용자 선택(폼 밖이라 선택 즉시 대상이 갱신된다)
-    sel_email = st.selectbox(
-        "사용자 선택",
-        options=users_df["email"].tolist(),
-        format_func=lambda e: f"{name_by_email[e]} ({e})",
+# 첫행: 사용자 선택(폼 밖이라 선택 즉시 대상이 갱신된다)
+sel_email = st.selectbox(
+    "사용자 선택",
+    options=users_df["email"].tolist(),
+    format_func=lambda e: f"{name_by_email[e]} ({e})",
+)
+target = users_df[users_df["email"] == sel_email].iloc[0]
+
+# 보호 계정(PROTECTED_OID)은 본인 외 다른 관리자가 권한·상태를 바꿀 수 없도록 잠근다.
+# 이름이 아니라 불변 키인 oid로 식별한다.
+protected = target["oid"] == PROTECTED_OID and st.user.oid != PROTECTED_OID
+
+# 둘째행: 이름·권한·상태를 3열로
+with st.form("edit_user"):
+    c_name, c_role, c_status = st.columns(3)
+    new_name = c_name.text_input("이름", value=target["name"])
+    new_role = c_role.selectbox(
+        "권한", options=list(ROLE_LABEL),
+        index=list(ROLE_LABEL).index(target["role"]) if target["role"] in ROLE_LABEL else 0,
+        format_func=ROLE_LABEL.get,
+        disabled=protected,
     )
-    target = users_df[users_df["email"] == sel_email].iloc[0]
-
-    # 보호 계정(PROTECTED_OID)은 본인 외 다른 관리자가 권한·상태를 바꿀 수 없도록 잠근다.
-    # 이름이 아니라 불변 키인 oid로 식별한다.
-    protected = target["oid"] == PROTECTED_OID and st.user.oid != PROTECTED_OID
-
-    # 둘째행: 이름·권한·상태를 3열로
-    with st.form("edit_user"):
-        c_name, c_role, c_status = st.columns(3)
-        new_name = c_name.text_input("이름", value=target["name"])
-        new_role = c_role.selectbox(
-            "권한", options=list(ROLE_LABEL),
-            index=list(ROLE_LABEL).index(target["role"]) if target["role"] in ROLE_LABEL else 0,
-            format_func=ROLE_LABEL.get,
-            disabled=protected,
-        )
-        new_status = c_status.selectbox(
-            "상태", options=USER_STATUS,
-            index=USER_STATUS.index(target["status"]) if target["status"] in USER_STATUS else 0,
-            disabled=protected,
-        )
-        if protected:
-            st.caption(f":material/lock: **{target['name']}** 계정의 권한·상태는 다른 관리자가 변경할 수 없습니다.")
-        submitted = st.form_submit_button("저장", type="primary", width="stretch")
+    new_status = c_status.selectbox(
+        "상태", options=USER_STATUS,
+        index=USER_STATUS.index(target["status"]) if target["status"] in USER_STATUS else 0,
+        disabled=protected,
+    )
+    if protected:
+        st.caption(f":material/lock: **{target['name']}** 계정의 권한·상태는 다른 관리자가 변경할 수 없습니다.")
+    submitted = st.form_submit_button("저장", type="primary", width="stretch")
 
 if submitted:
     # 보호 계정은 권한·상태 변경을 무시하고 현재 값을 유지한다(위젯 비활성과 이중 방어).
