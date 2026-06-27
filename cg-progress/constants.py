@@ -15,16 +15,19 @@ import math
 #     timer       : (선택) 측정 전 대기 시간(초). 있으면 해당 스텝에 안내용 카운트다운 표시.
 #   위 표시·안내용 값은 DB에 저장되지 않는다.
 #   (DB의 test_item에는 스텝 번호, measurements에는 측정값만 저장된다.)
-#   form   : (선택) Raw Data → 공식 양식(.xlsx) 다운로드용 매핑. export.build_filled_form이 사용.
+#   form         : (선택) Functional Test Raw Data → 공식 양식(.xlsx) 다운로드 매핑.
+#   coating_form : (선택) Conformal Coating Raw Data → 공식 양식 매핑. 구조·키는 form과 동일.
 #     file       : form/ 아래 템플릿 파일명
 #     sheet      : 채울 시트명
-#     serial_col : 첫 Serial이 들어갈 열(스텝 측정값도 이 열부터 좌→우). 행 좌표(2/3/4/6)는 양식 공통.
-#   form이 없는 보드(예: Controller)는 다운로드 버튼을 노출하지 않는다.
+#     serial_col : 첫 Serial이 들어갈 열(측정값도 이 열부터 좌→우). 행 좌표(2/3/4/6)는 양식 공통.
+#   해당 매핑이 없는 보드는 그 페이지에서 다운로드 버튼을 노출하지 않는다.
+#   (Functional Test는 Controller에 form이 없고, Conformal Coating은 5종 모두 coating_form이 있다.)
 BOARD_CONFIG = {
     "H-Bridge B/D": {
         "prefix": "H",
         "digits": 4,
         "form": {"file": "WG250_CG-H-Bridge_Test-sheet.xlsx", "sheet": "H-Bridge", "serial_col": "G"},
+        "coating_form": {"file": "Conformal-Coating-Thickness.xlsx", "sheet": "H-Bridge", "serial_col": "G"},
         "steps": [
             {"description": "01. Measure the resistance across the component R11", "min": 9.9, "max": 10.1, "unit": "Ω"},
             {"description": "02. Measure the resistance across the component R12", "min": 9.9, "max": 10.1, "unit": "Ω"},
@@ -57,6 +60,7 @@ BOARD_CONFIG = {
         "prefix": "G",
         "digits": 4,
         "form": {"file": "WG250_CG-Gate-Driver_Test-sheet.xlsx", "sheet": "Gate Driver", "serial_col": "H"},
+        "coating_form": {"file": "Conformal-Coating-Thickness.xlsx", "sheet": "Gate Driver", "serial_col": "G"},
         "steps": [
             {"description": "01. Pin4 (Anode) and Pin 1 (Cathode)", "min": 0.6, "max": 1, "unit": "V"},
             {"description": "02. Pin2 (Anode) and Pin 1 (Cathode)", "min": 0.85, "max": 1.1, "unit": "V"},
@@ -108,6 +112,7 @@ BOARD_CONFIG = {
         "prefix": "B",
         "digits": 4,
         "form": {"file": "WG250_CG-Bypass-Capacitor_Test-sheet.xlsx", "sheet": "Bypass Cap", "serial_col": "G"},
+        "coating_form": {"file": "Conformal-Coating-Thickness.xlsx", "sheet": "Bypass Cap", "serial_col": "G"},
         "steps": [
             {"description": "01. Initial Capacitor Voltage", "min": 0, "max": 1, "unit": "V"},
             {"description": "02. Capacitor Voltage after 1 Time Constant", "min": 13, "max": 17, "unit": "V", "timer": 15},
@@ -121,6 +126,7 @@ BOARD_CONFIG = {
         "prefix": "T",
         "digits": 4,
         "form": {"file": "WG250_CG-Tuning-Capacitor_Test-sheet.xlsx", "sheet": "Tuning Cap", "serial_col": "G"},
+        "coating_form": {"file": "Conformal-Coating-Thickness.xlsx", "sheet": "Tuning Cap", "serial_col": "G"},
         "steps": [
             {"description": "01. Using a multimeter, measure the capacitance between A1 and ANT+ (See encircled in red below) and record it in the table against test index 1 on the Test Result Section. Base Capacitance Top", "min": 47, "max": 53, "unit": "μF"},
             {"description": "02. Using a multimeter, measure the capacitance between A1T and ANT+ (See encircled in red below) and record it in the table against test index 2 on the Test Result Section. Tuning Capacitance Top", "min": 56.43, "max": 62.37, "unit": "μF"},
@@ -131,7 +137,12 @@ BOARD_CONFIG = {
             {"description": "07. Using a LCR meter at Rp (resistance parallel setting), measure the resistance between TP3 and TP4 f = 2kHz(See encircled in red below) and record it in the table against test index 7 on the Test Result Section. Resistance between TP3 and TP4", "min": 600, "max": 610, "unit": "kΩ"},
         ],
     },
-    "Controller B/D": {"prefix": "C", "digits": 4, "steps": []},
+    "Controller B/D": {
+        "prefix": "C",
+        "digits": 4,
+        "coating_form": {"file": "Conformal-Coating-Thickness.xlsx", "sheet": "Controller", "serial_col": "G"},
+        "steps": [],
+    },
 }
 
 # 보드 라벨은 설정에서 자동 파생한다 — 목록을 두 곳에 두지 않아 누락을 막는다(단일 출처).
