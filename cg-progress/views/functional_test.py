@@ -1,3 +1,4 @@
+import math
 import time
 from datetime import datetime
 
@@ -6,10 +7,8 @@ import streamlit as st
 from lib.constants import BOARD_CONFIG, BOARD_LABELS, summary_records
 from lib.database import delete_serial, insert_records, load_records
 from lib.export import build_filled_form
+from lib.ui import confirm_dialog
 from lib.wizard import BaseWizard, can_edit
-
-# 타이머 진행바 갱신 주기(초). 재실행 왕복 한계로 실질 하한은 ~0.1s.
-TIMER_REFRESH_SEC = 0.1
 
 st.title("Functional Test")
 st.caption('CG PCBA 5종에 대한 "기능 테스트"를 진행합니다.')
@@ -47,14 +46,13 @@ class BoardWizard(BaseWizard):
         self._set("val", "")  # 첫 스텝 입력칸을 빈값으로
 
     def _reset(self) -> None:
-        for name in ("base", "step", "values", "val", "confirm_save"):
+        for name in ("base", "step", "values", "val", "confirm_save", "confirm_move"):
             st.session_state.pop(self._key(name), None)
         # Serial 입력칸은 비워 다음 테스트를 새 번호로 시작한다(날짜·담당자는 유지).
         st.session_state.pop(self._key("in_serial"), None)
         # 스텝별 타이머 상태도 초기화(재진입 시 처음부터).
         for i in range(self.total):
-            st.session_state.pop(self._key(f"timer_deadline_{i}"), None)
-            st.session_state.pop(self._key(f"timer_done_{i}"), None)
+            st.session_state.pop(self._key(f"timer_start_{i}"), None)
 
     def _download_button(self, view) -> None:
         if not self.form:  # 양식이 없는 보드(Controller 등)는 버튼 비노출
@@ -72,10 +70,27 @@ class BoardWizard(BaseWizard):
     # 버튼은 st.rerun() 대신 on_click 콜백으로 처리한다. 콜백은 재실행 '전'에 돌아 rerun이 한 번만
     # 일어나므로, 폼 제출 직후 "Missing Submit Button" 깜빡임이 없다.
     def _advance_step(self) -> None:
-        """현재 값을 저장하고 다음 스텝으로(마지막이면 저장 확인 다이얼로그 요청)."""
+        """다음 스텝으로. 타이머 진행 중이면 곧장 이동하지 않고 이동 확인 모달 플래그만 세운다.
+        (마지막 스텝의 '저장'은 별도 저장 확인 모달이 있으므로 이동 확인 대상이 아니다.)"""
+        step = self._get("step")
+        if step < self.total - 1 and self._timer_running(step):
+            self._set("confirm_move", "next")  # st.dialog는 본문에서 열어야 하므로 플래그만 세운다
+        else:
+            self._do_advance()
+
+    def _prev_step(self) -> None:
+        step = self._get("step")
+        if step > 0 and self._timer_running(step):
+            self._set("confirm_move", "prev")
+        else:
+            self._do_prev()
+
+    def _do_advance(self) -> None:
+        """현재 값을 저장하고 다음 스텝으로(마지막이면 저장 확인 다이얼로그 요청). 이동 시 타이머는 초기화."""
         step = self._get("step")
         values = self._get("values")
         values[step] = self._get("val")
+        self._clear_timer(step)
         if step >= self.total - 1:
             # st.dialog는 콜백이 아니라 본문에서 호출해야 열리므로 플래그만 세운다(본문이 연다).
             self._set("confirm_save", True)
@@ -84,48 +99,101 @@ class BoardWizard(BaseWizard):
             # 다음 스텝의 저장값(없으면 빈값)으로 입력칸을 갈아끼운다(key 고정이라 위젯 재생성 없음).
             self._set("val", values.get(step + 1, ""))
 
-    def _prev_step(self) -> None:
+    def _do_prev(self) -> None:
         step = self._get("step")
         if step > 0:
             values = self._get("values")
             values[step] = self._get("val")
+            self._clear_timer(step)
             self._set("step", step - 1)
             self._set("val", values.get(step - 1, ""))
 
-    def _start_timer(self, step: int, seconds: float) -> None:
-        """'타이머 시작/재시작' 콜백 — deadline을 새로 잡고 완료 플래그를 내린다."""
-        self._set(f"timer_deadline_{step}", time.monotonic() + seconds)
-        self._set(f"timer_done_{step}", False)
+    def _confirm_move_dialog(self, direction: str) -> None:
+        """타이머 진행 중 스텝 이동 확인 모달. 확인 시 이동(+타이머 초기화), 취소 시 현재 스텝 유지."""
+        confirm_dialog(
+            "스텝 이동 확인",
+            body="타이머가 진행 중입니다. 이동하면 타이머가 **초기화**됩니다.\n\n정말 이동하시겠습니까?",
+            ok_label=":material/arrow_forward: 이동",
+            on_confirm=self._do_advance if direction == "next" else self._do_prev,
+        )
+
+    def _start_timer(self, step: int) -> None:
+        """'타이머 시작/재시작' 콜백 — 시작 시각만 기록한다(카운트다운은 브라우저 CSS가 진행)."""
+        self._set(f"timer_start_{step}", time.monotonic())
+
+    def _timer_running(self, step: int) -> bool:
+        """현재 스텝에 아직 끝나지 않은(진행 중) 타이머가 켜져 있으면 True."""
+        seconds = self.steps[step].get("timer")
+        start = self._get(f"timer_start_{step}")
+        if not seconds or start is None:
+            return False
+        return time.monotonic() - start < seconds
+
+    def _clear_timer(self, step: int) -> None:
+        """해당 스텝의 타이머 상태를 지운다(이동 시 항상 초기화 → 재진입 시 처음부터)."""
+        st.session_state.pop(self._key(f"timer_start_{step}"), None)
 
     def _render_timer(self, step: int, seconds: float) -> None:
-        """측정 전 대기를 돕는 안내용 카운트다운(입력·진행은 막지 않음). 완료 시 run_every=None으로 자동 정지.
-        https://docs.streamlit.io/develop/api-reference/execution-flow/st.fragment"""
-        deadline_key = self._key(f"timer_deadline_{step}")
-        done_key = self._key(f"timer_done_{step}")
-        started = deadline_key in st.session_state
-
+        """측정 전 대기를 돕는 안내용 카운트다운(입력·진행은 막지 않음).
+        카운트다운은 서버 재실행이 아니라 브라우저 CSS 애니메이션으로 진행한다. run_every로 0.1초마다
+        서버를 왕복하던 기존 방식은 망 지연(특히 터널)에서 재실행이 몰렸다 멈췄다 하며 숫자가
+        '15→14→(정체)→7'처럼 건너뛰었다 — CSS 방식은 왕복이 없어 지연과 무관하게 매끄럽다.
+        완료 메시지(st.success)는 서버 요소라, 끝나는 순간 '한 번'만 rerun해 띄운다(폴링 아님)."""
+        start_key = self._key(f"timer_start_{step}")
+        started = start_key in st.session_state
         if started:
-            running = not st.session_state.get(done_key)
+            elapsed = time.monotonic() - st.session_state[start_key]
+            if elapsed >= seconds:
+                st.success(f":material/timer: {seconds:g}초 대기 완료")
+            else:
+                self._render_countdown(step, seconds, elapsed)
+                self._schedule_complete(start_key, seconds, seconds - elapsed)
 
-            @st.fragment(run_every=TIMER_REFRESH_SEC if running else None)  # 완료 시 None → 정지
-            def _tick() -> None:
-                if st.session_state.get(done_key):
-                    st.success(f":material/timer: {seconds}초 대기 완료")
-                    return
-                remaining = st.session_state[deadline_key] - time.monotonic()
-                if remaining <= 0:
-                    st.session_state[done_key] = True
-                    st.rerun()  # 전체 rerun → run_every=None으로 재데코레이트되어 멈춤
-                st.progress(
-                    max(0.0, min(1.0, 1 - remaining / seconds)),
-                    text=f":material/timer: 남은 시간 {int(remaining) + 1}초",
-                )
-
-            _tick()
-
-        label = ":material/refresh: 타이머 재시작" if started else f":material/timer: 타이머 시작 ({seconds}초)"
+        label = ":material/refresh: 타이머 재시작" if started else f":material/timer: 타이머 시작 ({seconds:g}초)"
         st.button(label, key=self._key(f"timer_btn_{step}"), width="stretch",
-                  on_click=self._start_timer, args=(step, seconds))
+                  on_click=self._start_timer, args=(step,))
+
+    def _schedule_complete(self, start_key: str, seconds: float, remaining: float) -> None:
+        """카운트다운이 끝나는 순간 딱 한 번 rerun해 완료 메시지(st.success)를 띄운다.
+        run_every=남은시간이라 대기 중엔 서버를 안 치고, 완료 시점에 1회 깨어나 전체 rerun을 건다.
+        그 뒤엔 elapsed>=seconds 분기로 들어가 이 fragment를 다시 만들지 않으므로 폴링이 되지 않는다."""
+        @st.fragment(run_every=max(0.1, remaining))
+        def _fire() -> None:
+            if time.monotonic() - st.session_state.get(start_key, 0) >= seconds:
+                st.rerun()  # 완료 → 전체 rerun → _render_timer가 st.success 분기로 진입
+
+        _fire()
+
+    def _render_countdown(self, step: int, seconds: float, elapsed: float) -> None:
+        """남은 시간을 브라우저에서 CSS로 카운트다운한다(서버 왕복 없음).
+        숫자(n‥0)를 세로로 쌓아 steps()로 1초마다 한 칸씩 밀어 올려 보여 주고, 막대는 width로 채운다.
+        animation-delay에 -elapsed를 줘, rerun으로 HTML이 다시 그려져도 이미 흐른 만큼 건너뛴 지점부터
+        이어 보여 준다. (@property는 st.html이 제거하므로 @keyframes+transform만 사용한다.)
+        https://docs.streamlit.io/develop/api-reference/utilities/st.html"""
+        n = math.ceil(seconds)              # 시작 표시 숫자 = 올림(기존 int(remaining)+1과 동일)
+        name = f"cd-{self.prefix}-{step}"   # 보드·스텝별 고유 식별자(클래스·keyframes 공용)
+        delay, dur = f"{-elapsed:.2f}s", f"{seconds:g}s"
+        nums = "".join(f"<span>{k}</span>" for k in range(n, -1, -1))  # n, n-1, ..., 1, 0
+        st.html(f"""
+        <div class="{name}">
+          <div class="lbl">남은 시간:
+              <span class="win"><span class="strip">{nums}</span></span>초</div>
+          <div class="track"><div class="fill"></div></div>
+        </div>
+        <style>
+        @keyframes {name}-roll {{ from {{ transform: translateY(0); }} to {{ transform: translateY(-{n}em); }} }}
+        @keyframes {name}-bar  {{ from {{ width: 0%; }} to {{ width: 100%; }} }}
+        .{name} .win {{ display: inline-block; height: 1em; line-height: 1em; overflow: hidden;
+                        vertical-align: -0.15em; }}
+        .{name} .strip {{ display: flex; flex-direction: column; align-items: flex-end;
+                          animation: {name}-roll {dur} steps({n}) {delay} forwards; }}
+        .{name} .strip > span {{ height: 1em; line-height: 1em; }}
+        .{name} .track {{ height: 0.5rem; background: rgba(128,128,128,0.25);
+                          border-radius: 0.25rem; overflow: hidden; margin-top: 0.35rem; }}
+        .{name} .fill {{ height: 100%; background: #3893fe;
+                         animation: {name}-bar {dur} linear {delay} forwards; }}
+        </style>
+        """)
 
     # ── 스텝 입력 화면 ────────────────────────────────────────
     def _render_step_wizard(self) -> None:
@@ -141,6 +209,12 @@ class BoardWizard(BaseWizard):
         if self._get("confirm_save"):
             self._set("confirm_save", False)
             self._confirm_save_dialog()
+
+        # 타이머 진행 중 스텝 이동 요청이 있으면 이동 확인 모달을 연다(확인 시 이동+타이머 초기화).
+        if self._get("confirm_move"):
+            direction = self._get("confirm_move")
+            self._set("confirm_move", None)
+            self._confirm_move_dialog(direction)
 
         with st.container(border=True):
             self._render_cancel_header(base)
