@@ -9,6 +9,13 @@ import streamlit as st
 from lib.database import user_names
 
 
+def centered():
+    """로그인·비활성 안내 등 전면(full-screen) 메시지를 가운데 좁은 폭에 배치하는 컬럼.
+    layout="wide"에서 본문이 가로로 꽉 차므로, 양옆 여백 컬럼 사이의 가운데 컬럼을 반환한다.
+    사용: ``with centered(): ...``"""
+    return st.columns([1, 1.3, 1])[1]
+
+
 def map_oids(view, *cols):
     """view의 지정 컬럼(test_By·test_by·verify_by 등 oid 저장)을 현재 이름으로 변환한 사본을 반환한다.
     매핑에 없는 값(레거시 행·미등록 oid)은 저장값 그대로 폴백한다."""
