@@ -4,6 +4,7 @@ import streamlit as st
 
 from lib.constants import ROLE_COLOR, ROLE_ICON, ROLE_LABEL
 from lib.database import get_or_create_user
+from lib.ui import centered
 
 IMAGES_DIR = Path(__file__).parent / "images"
 
@@ -20,10 +21,9 @@ st.logo(str(IMAGES_DIR / "logo(1048x238)-removed.png"), size="large")
 # https://docs.streamlit.io/develop/concepts/connections/authentication
 # getattr: secrets.toml에 [auth]가 없으면 st.user.is_logged_in 자체가 없으므로 안전하게 False 처리.
 if not getattr(st.user, "is_logged_in", False):
-    # layout="wide"라 본문이 가로로 꽉 차므로, 컬럼으로 가운데 좁은 영역을 만들어 로그인 영역을 중앙 배치한다.
+    # layout="wide"라 본문이 가로로 꽉 차므로, 가운데 좁은 영역을 만들어 로그인 영역을 중앙 배치한다.
     # https://docs.streamlit.io/develop/api-reference/layout/st.columns
-    _, center, _ = st.columns([1, 1.3, 1])
-    with center:
+    with centered():
         # 어두운 와이드 제품 렌더를 히어로로 맨 위에 둔다 — 카드 테두리 없이 이미지 자체가 시선 앵커.
         st.image(str(IMAGES_DIR / "Orica-Webgen-200-Mining-Enclosure-Design-Render-04.png"), width="stretch")
         # 제목·부제는 히어로 아래에 가운데 정렬로 통일 — 짧은 인라인 스타일만 사용.
@@ -61,8 +61,7 @@ role = st.session_state.role
 # status가 Disable이면 어떤 페이지에도 접근하지 못하게 막는다(네비게이션 도달 전 차단).
 # 로그아웃만 남겨 다른 계정으로 다시 로그인할 수 있게 한다.
 if st.session_state.status == "Disable":
-    _, center, _ = st.columns([1, 1.3, 1])
-    with center:
+    with centered():
         st.error("비활성화된 계정입니다. 접근 권한이 없으니 관리자에게 문의하세요.", icon=":material/block:")
         st.button("로그아웃", on_click=st.logout, icon=":material/logout:", width="stretch")
     st.stop()
