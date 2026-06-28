@@ -86,9 +86,9 @@ with st.sidebar:
 pages = {
     # 빈 문자열 키는 머리글 없이 렌더링되어 "전체 진척도"가 최상단에 독립 표시된다.
     "": [
-        st.Page("pages/progress.py",              title="전체 진척도",  icon=":material/bar_chart_4_bars:",      default=True),
-        st.Page("pages/functional_test.py",   title="기능 테스트",  icon=":material/developer_board:"),
-        st.Page("pages/conformal_coating.py", title="컨포멀 코팅",  icon=":material/fragrance:"),
+        st.Page("views/progress.py",              title="전체 진척도",  icon=":material/bar_chart_4_bars:",      default=True),
+        st.Page("views/functional_test.py",   title="기능 테스트",  icon=":material/developer_board:"),
+        st.Page("views/conformal_coating.py", title="컨포멀 코팅",  icon=":material/fragrance:"),
     ],
 }
 
@@ -96,10 +96,10 @@ pages = {
 # 권한별 섹션으로 나누지 않고 "마이페이지" 하나로 묶되, 페이지 노출만 권한에 따라 달라진다.
 my_pages = []
 if role in ("admin", "editor"):
-    my_pages.append(st.Page("pages/verification.py", title="검수 리스트", icon=":material/verified:"))
+    my_pages.append(st.Page("views/verification.py", title="검수 리스트", icon=":material/verified:"))
 if role == "admin":
-    my_pages.append(st.Page("pages/movement.py", title="입출고 관리", icon=":material/local_shipping:"))
-    my_pages.append(st.Page("pages/authorization.py", title="사용자 권한", icon=":material/admin_panel_settings:"))
+    my_pages.append(st.Page("views/movement.py", title="입출고 관리", icon=":material/local_shipping:"))
+    my_pages.append(st.Page("views/authorization.py", title="사용자 권한", icon=":material/admin_panel_settings:"))
 if my_pages:
     pages["마이페이지"] = my_pages
 
