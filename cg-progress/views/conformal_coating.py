@@ -86,10 +86,9 @@ class CoatingWizard(BaseWizard):
         if not self.coating_form:
             return
         # 코팅 view를 build_filled_form이 기대하는 스키마로 변환한다:
-        #   coating_point("T1"~"B4") → test_item(1~8 행순번), test_by → test_By(이미 이름).
+        #   coating_point("T1"~"B4") → test_item(1~8 행순번). test_by는 양식과 컬럼명이 같아 그대로.
         form_view = view.assign(
             test_item=view["coating_point"].map(COATING_POINT_ITEM),
-            test_By=view["test_by"],
         )
         st.download_button(
             ":material/download: Download XLSX",

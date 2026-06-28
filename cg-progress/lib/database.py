@@ -29,12 +29,12 @@ def _meas(m) -> str | None:
 def get_conn() -> sqlite3.Connection:
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     conn.execute("""
-        CREATE TABLE IF NOT EXISTS PCBA_Functional_test (
+        CREATE TABLE IF NOT EXISTS PCBA_Functional_Test (
             serial_number   TEXT NOT NULL,
             test_item       TEXT NOT NULL,
             measurements    TEXT,
             test_datetime   TEXT NOT NULL,
-            test_By         TEXT NOT NULL,
+            test_by         TEXT NOT NULL,
             verify_datetime TEXT,
             verify_by       TEXT,
             PRIMARY KEY (serial_number, test_item)
@@ -82,7 +82,7 @@ def get_conn() -> sqlite3.Connection:
     """)
     # verify_by IS NULL(검수 중) 조회를 돕도록 인덱스를 둔다.
     # (Users.oid는 PRIMARY KEY라 자동 인덱스가 생성된다. email 조회는 사용자 수가 적어 인덱스 불필요)
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_test_results_verify_by ON PCBA_Functional_test(verify_by)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_test_results_verify_by ON PCBA_Functional_Test(verify_by)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_coating_verify_by ON PCBA_Conformal_Coating(verify_by)")
     conn.commit()
     return conn
@@ -96,7 +96,7 @@ def get_or_create_user(oid: str, email: str, name: str) -> tuple[str, str]:
     conn = get_conn()
     with conn:
         # 1) oid로 우선 조회 (정상 경로). 표시 이름·이메일은 매 로그인 시 최신값으로 갱신한다.
-        #    records의 test_By·verify_by에는 불변 oid를 저장하므로, AD에서 이름이 바뀌어도
+        #    records의 test_by·verify_by에는 불변 oid를 저장하므로, AD에서 이름이 바뀌어도
         #    매핑은 끊기지 않고 화면에는 최신 이름이 나온다.
         row = conn.execute("SELECT role, name, email, status FROM Users WHERE oid=?", (oid,)).fetchone()
         if row:
@@ -147,7 +147,7 @@ def update_user(email: str, name: str, role: str, status: str):
 
 @st.cache_data(ttl=300)
 def user_names() -> dict:
-    """oid → 표시 이름 매핑. records의 test_By·verify_by(oid 저장)를 화면에 이름으로
+    """oid → 표시 이름 매핑. records의 test_by·verify_by(oid 저장)를 화면에 이름으로
     바꿔 표시할 때 쓴다. oid를 못 찾으면(레거시 행·미등록) 호출부에서 저장값 그대로 폴백한다."""
     conn = get_conn()
     rows = conn.execute("SELECT oid, name FROM Users WHERE oid IS NOT NULL").fetchall()
@@ -157,7 +157,7 @@ def user_names() -> dict:
 # ── Records (기능 테스트 · 코팅 공용) ─────────────────────
 # 두 테이블은 검수 흐름·경합 가드가 동일하고 (테이블, item 컬럼, tester 컬럼)만 다르다.
 # 아래 프라이빗 헬퍼가 그 차이를 인자로 받아 한 번에 처리하고, 공개 함수는 테이블별 인자만
-# 채워 위임한다. 컬럼명(test_item/coating_point, test_By/test_by)은 라이브 DB 스키마라 그대로 쓴다.
+# 채워 위임한다. 컬럼명(test_item/coating_point)은 라이브 DB 스키마라 그대로 쓴다.
 
 def _insert(table: str, item_col: str, tester_col: str, rows: list, load_fn):
     """rows: list of (serial, item, test_datetime, tester, measurements). 한 번에 여러 건 저장한다.
@@ -215,24 +215,24 @@ def load_records() -> pd.DataFrame:
     conn = get_conn()
     # test_item은 '1'~'25' 문자열이므로 숫자 순으로 정렬한다.
     return pd.read_sql(
-        "SELECT * FROM PCBA_Functional_test ORDER BY CAST(test_item AS INTEGER), serial_number", conn)
+        "SELECT * FROM PCBA_Functional_Test ORDER BY CAST(test_item AS INTEGER), serial_number", conn)
 
 def insert_records(rows: list):
     """rows: list of (serial, test_item, test_datetime, tested_by, measurements)."""
-    _insert("PCBA_Functional_test", "test_item", "test_By", rows, load_records)
+    _insert("PCBA_Functional_Test", "test_item", "test_by", rows, load_records)
 
 def verify_serial(serial, verify_by) -> int:
-    return _verify("PCBA_Functional_test", serial, verify_by, load_records)
+    return _verify("PCBA_Functional_Test", serial, verify_by, load_records)
 
 def delete_pending(serial, owner_oid=None) -> int:
-    return _delete_pending("PCBA_Functional_test", "test_By", serial, owner_oid, load_records)
+    return _delete_pending("PCBA_Functional_Test", "test_by", serial, owner_oid, load_records)
 
 def delete_serial(serial):
-    _delete_serial("PCBA_Functional_test", serial, load_records)
+    _delete_serial("PCBA_Functional_Test", serial, load_records)
 
 
 # ── 컨포멀 코팅 ───────────────────────────────────────────
-# test_item → coating_point, test_By → test_by 만 다르고 흐름은 기능 테스트와 동일하다.
+# test_item → coating_point 만 다르고 흐름은 기능 테스트와 동일하다(tester 컬럼은 둘 다 test_by).
 
 @st.cache_data(ttl=60)
 def load_coating_records() -> pd.DataFrame:

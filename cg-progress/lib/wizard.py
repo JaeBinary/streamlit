@@ -35,7 +35,7 @@ def can_edit() -> bool:
 class BaseWizard:
     # 서브클래스가 덮어쓰는 표시·매핑 설정(기본값은 기능 테스트 기준).
     item_col = "test_item"          # render_records 메트릭·매핑 컬럼
-    tester_col = "test_By"          # oid→이름 변환 대상 컬럼
+    tester_col = "test_by"          # oid→이름 변환 대상 컬럼
     item_metric_label = "고유 Test Item 수"
     exists_msg = "이미 테스트를 완료하였습니다."
     delete_kind = "데이터"           # 삭제 다이얼로그 본문: "모든 {delete_kind}를 삭제합니다"

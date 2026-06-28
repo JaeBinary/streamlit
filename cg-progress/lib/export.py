@@ -88,7 +88,7 @@ def build_filled_form(form_file: str, form_sheet: str, serial_col: str,
                       prefix: str, n_steps: int, view) -> bytes:
     """검수완료·Serial 필터가 끝난 view를 공식 양식에 채워 xlsx bytes로 반환.
 
-    view 컬럼: serial_number, test_item, measurements, test_datetime, test_By(이미 이름).
+    view 컬럼: serial_number, test_item, measurements, test_datetime, test_by(이미 이름).
     Serial은 오름차순으로 입력 열부터 좌→우. 둘째 Serial부터는 입력 열을 서식·조건부 서식·
     데이터 검증까지 복제해 동일 포맷을 유지한다(설명/MIN/MAX·헤더·하단 결과 행은 그대로).
     @st.cache_data: st.tabs가 매 rerun에 모든 탭을 렌더해도 view가 그대로면 재생성하지 않는다.
@@ -121,7 +121,7 @@ def build_filled_form(form_file: str, form_sheet: str, serial_col: str,
         date_cell = ws.cell(DATE_ROW, col)
         date_cell.value = datetime.strptime(str(first["test_datetime"])[:10], "%Y-%m-%d").date()
         date_cell.number_format = "yyyy-mm-dd"
-        ws.cell(TESTER_ROW, col).value = first["test_By"]               # view에서 이미 oid→이름
+        ws.cell(TESTER_ROW, col).value = first["test_by"]               # view에서 이미 oid→이름
         for _, rec in sub.iterrows():
             item = int(rec["test_item"])
             if 1 <= item <= n_steps:                                    # 양식 행 범위 안만 기록

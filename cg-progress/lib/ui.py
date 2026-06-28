@@ -17,7 +17,7 @@ def centered():
 
 
 def map_oids(view, *cols):
-    """view의 지정 컬럼(test_By·test_by·verify_by 등 oid 저장)을 현재 이름으로 변환한 사본을 반환한다.
+    """view의 지정 컬럼(test_by·verify_by 등 oid 저장)을 현재 이름으로 변환한 사본을 반환한다.
     매핑에 없는 값(레거시 행·미등록 oid)은 저장값 그대로 폴백한다."""
     names = user_names()
     return view.assign(**{c: view[c].map(names).fillna(view[c]) for c in cols})

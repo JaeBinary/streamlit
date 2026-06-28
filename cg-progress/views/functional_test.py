@@ -17,7 +17,7 @@ st.caption('CG PCBA 5종에 대한 "기능 테스트"를 진행합니다.')
 class BoardWizard(BaseWizard):
     """보드 한 종의 기능 테스트 위자드. 스텝마다 측정값 한 칸을 입력하며, 일부 스텝엔 안내용 타이머가 있다.
     공통 골격(기본 정보 폼·저장 다이얼로그·Raw Data)은 BaseWizard에 있고 여기선 스텝 입력만 구현한다.
-    BaseWizard 기본 설정(item_col=test_item, tester_col=test_By 등)이 기능 테스트와 같아 그대로 쓴다."""
+    BaseWizard 기본 설정(item_col=test_item, tester_col=test_by 등)이 기능 테스트와 같아 그대로 쓴다."""
 
     def __init__(self, cfg: dict) -> None:
         super().__init__(cfg)
