@@ -148,6 +148,16 @@ BOARD_CONFIG = {
 # 보드 라벨은 설정에서 자동 파생한다 — 목록을 두 곳에 두지 않아 누락을 막는다(단일 출처).
 BOARD_LABELS = list(BOARD_CONFIG)
 
+# 보드 → 그래프 색상(단일 출처). 진척도 차트의 보드별 색을 여기서 고정한다 — Altair color scale의
+# domain/range로 그대로 넘긴다(키 순서 = 범례 순서). 색을 바꾸려면 이 표만 고치면 된다.
+BOARD_COLOR = {
+    "H-Bridge B/D":         "#31A1E8",
+    "Gate Driver B/D":      "#E89B31",
+    "Bypass Capacitor B/D": "#4D85A8",
+    "Tuning Capacitor B/D": "#937750",
+    "Controller B/D":       "#4A5D69",
+}
+
 # ── 컨포멀 코팅 ───────────────────────────────────────────
 # 코팅 두께 측정 포인트(모든 보드 공통). 윗면 T1~T4 → 아랫면 B1~B4 순으로 입력받는다.
 # 이 값이 DB의 coating_point에 그대로 저장되고, 입력 라벨·요약표·검수 매핑의 단일 출처다.
