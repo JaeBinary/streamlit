@@ -54,17 +54,21 @@ class BoardWizard(BaseWizard):
         for i in range(self.total):
             st.session_state.pop(self._key(f"timer_start_{i}"), None)
 
-    def _download_button(self, view) -> None:
+    def _download_button(self, view, selected) -> None:
         if not self.form:  # 양식이 없는 보드(Controller 등)는 버튼 비노출
             return
+        # Serial을 선택했을 때만 양식을 채운다(비활성 버튼이 받을 데이터를 미리 만들지 않음).
+        data = (build_filled_form(self.form["file"], self.form["sheet"],
+                                  self.form["serial_col"], self.prefix, self.total, view)
+                if selected else b"")
         st.download_button(
-            ":material/download: Download XLSX",
-            data=build_filled_form(self.form["file"], self.form["sheet"],
-                                   self.form["serial_col"], self.prefix, self.total, view),
+            ":material/download: Download Excel(.xlsx)",
+            data=data,
             file_name=f"{self.form['file'].removesuffix('.xlsx')}_{datetime.now():%y%m%d}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            disabled=view.empty, width="stretch", key=self._key("dl_form"),
+            disabled=not selected, width="stretch", key=self._key("dl_form"),
         )
+        self._style_download_button()  # 활성 시 Excel 녹색
 
     # ── 위자드 콜백 ───────────────────────────────────────────
     # 버튼은 st.rerun() 대신 on_click 콜백으로 처리한다. 콜백은 재실행 '전'에 돌아 rerun이 한 번만
