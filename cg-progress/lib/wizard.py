@@ -198,7 +198,7 @@ class BaseWizard:
         # 선택 Serial로 필터링(미선택이면 전체). tester·verify_by의 불변 oid는 현재 이름으로 변환.
         view = df if not selected else df[df["serial_number"].isin(selected)]
         view = map_oids(view, self.tester_col, "verify_by")
-        self._download_button(view)  # 양식 매핑이 있는 보드만 버튼 노출(없으면 no-op)
+        self._download_button(view, selected)  # 양식 매핑이 있는 보드만 버튼 노출(없으면 no-op)
         st.dataframe(view, width="stretch", hide_index=True)
 
     # ── 서브클래스 훅 ─────────────────────────────────────────
@@ -226,5 +226,18 @@ class BaseWizard:
     def _render_step_wizard(self) -> None:
         raise NotImplementedError
 
-    def _download_button(self, view) -> None:
+    def _download_button(self, view, selected) -> None:
         pass  # 양식이 없는 보드는 버튼을 노출하지 않는다
+
+    def _style_download_button(self) -> None:
+        """선택된 Serial이 있어 활성화된 Download 버튼만 Excel 녹색(#107C41)으로 칠한다.
+        :disabled(미선택) 상태는 Streamlit 기본 회색을 유지해 활성/비활성이 색으로 구분된다."""
+        key = self._key("dl_form")
+        st.html(f"""<style>
+        .st-key-{key} button:not(:disabled) {{
+            background-color: #107C41; border-color: #107C41; color: #fff;
+        }}
+        .st-key-{key} button:not(:disabled):hover {{
+            background-color: #0E6B38; border-color: #0E6B38; color: #fff;
+        }}
+        </style>""")
