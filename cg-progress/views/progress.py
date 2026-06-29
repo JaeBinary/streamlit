@@ -99,7 +99,7 @@ def render_value_explorer(records: pd.DataFrame, kind: str) -> None:
     measurements는 TEXT라 숫자만 골라 그리고, 스펙의 min/max가 있으면 허용 기준선을 함께 표시한다."""
     records = records[records["verify_by"].notna()]
     st.divider()
-    st.markdown("##### 검수된 측정값 보기")
+    st.markdown("##### Trend of Measurements")
 
     bcol, icol = st.columns(2)
     board = bcol.selectbox("보드", BOARD_LABELS, key=f"{kind}_vx_board")
