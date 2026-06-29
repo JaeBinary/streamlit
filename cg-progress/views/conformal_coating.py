@@ -82,6 +82,10 @@ class CoatingWizard(BaseWizard):
         for gidx in range(len(self.points)):
             st.session_state.pop(self._cell_key(gidx), None)
 
+    def _sort_view(self, view):
+        # Raw Data는 coating_point·serial_number 오름차순으로 정렬해 보여 준다.
+        return view.sort_values(["coating_point", "serial_number"])
+
     def _download_button(self, view, selected) -> None:
         if not self.coating_form:
             return
