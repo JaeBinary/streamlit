@@ -82,23 +82,27 @@ class CoatingWizard(BaseWizard):
         for gidx in range(len(self.points)):
             st.session_state.pop(self._cell_key(gidx), None)
 
-    def _download_button(self, view) -> None:
+    def _download_button(self, view, selected) -> None:
         if not self.coating_form:
             return
+        # Serial을 선택했을 때만 양식을 채운다(비활성 버튼이 받을 데이터를 미리 만들지 않음).
         # 코팅 view를 build_filled_form이 기대하는 스키마로 변환한다:
         #   coating_point("T1"~"B4") → test_item(1~8 행순번). test_by는 양식과 컬럼명이 같아 그대로.
-        form_view = view.assign(
-            test_item=view["coating_point"].map(COATING_POINT_ITEM),
-        )
+        if selected:
+            form_view = view.assign(test_item=view["coating_point"].map(COATING_POINT_ITEM))
+            data = build_filled_form(self.coating_form["file"], self.coating_form["sheet"],
+                                     self.coating_form["serial_col"], self.prefix,
+                                     len(self.points), form_view)
+        else:
+            data = b""
         st.download_button(
-            ":material/download: Download XLSX",
-            data=build_filled_form(self.coating_form["file"], self.coating_form["sheet"],
-                                   self.coating_form["serial_col"], self.prefix,
-                                   len(self.points), form_view),
+            ":material/download: Download Excel(.xlsx)",
+            data=data,
             file_name=f"{self.coating_form['file'].removesuffix('.xlsx')}_{datetime.now():%y%m%d}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            disabled=view.empty, width="stretch", key=self._key("dl_form"),
+            disabled=not selected, width="stretch", key=self._key("dl_form"),
         )
+        self._style_download_button()  # 활성 시 Excel 녹색
 
     # ── 위자드 콜백 (재실행 '전' 실행 → rerun 1회로 깜빡임 없음) ──
     def _advance_step(self) -> None:
