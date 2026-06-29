@@ -198,6 +198,7 @@ class BaseWizard:
         # 선택 Serial로 필터링(미선택이면 전체). tester·verify_by의 불변 oid는 현재 이름으로 변환.
         view = df if not selected else df[df["serial_number"].isin(selected)]
         view = map_oids(view, self.tester_col, "verify_by")
+        view = self._sort_view(view)  # 서브클래스가 표시 정렬 기준을 정한다(기본은 원본 순서)
         self._download_button(view, selected)  # 양식 매핑이 있는 보드만 버튼 노출(없으면 no-op)
         st.dataframe(view, width="stretch", hide_index=True)
 
@@ -225,6 +226,9 @@ class BaseWizard:
 
     def _render_step_wizard(self) -> None:
         raise NotImplementedError
+
+    def _sort_view(self, view):
+        return view  # 기본은 조회된 원본 순서를 유지(서브클래스가 정렬 기준을 덮어쓴다)
 
     def _download_button(self, view, selected) -> None:
         pass  # 양식이 없는 보드는 버튼을 노출하지 않는다
