@@ -14,20 +14,18 @@ PREFIX_TO_LABEL = {cfg["prefix"]: label for label, cfg in BOARD_CONFIG.items()}
 prefix_labels = pd.DataFrame({"prefix": list(PREFIX_TO_LABEL), "board": list(PREFIX_TO_LABEL.values())})
 
 
-def board_metrics(serials: pd.Series) -> None:
+def board_metrics(serials: pd.Series, deltas: dict[str, tuple[str, str]] | None = None) -> None:
     """Serial 시리즈를 보드별로 세어 metric을 BOARD_COLOR 순서로 가로 배치한다(데이터 없는 보드는 0).
-    입고수량·완료수량이 모두 'Serial을 보드별로 센다'는 같은 모양이라 한 함수로 공유한다.
+    deltas[board] = (텍스트, 색)이며 색은 'normal'(오늘 추가=초록 ↑) / 'off'(이전 날짜=회색 ↑)로
+    값 아래에 '최근 추가 수량·날짜'를 표기한다. 완료 이력이 없는 보드는 delta를 그리지 않아 빈 공간으로
+    두고(초록 pill 미표시), height='stretch'로 카드를 컬럼(=행 최대) 높이에 맞춰 테두리를 정렬한다.
     https://docs.streamlit.io/develop/api-reference/data/st.metric"""
+    deltas = deltas or {}
     counts = serials.str[0].map(PREFIX_TO_LABEL).value_counts()
     for col, board in zip(st.columns(len(BOARD_COLOR)), BOARD_COLOR):
-        col.metric(board, int(counts.get(board, 0)), border=True)
-
-
-# ── PCBA In-Stock (입고수량) ──────────────────────────────
-# 입고수량 = type='Inbound' 행 수(입출고 관리 페이지의 '입고수량' metric과 동일 기준). 보드는 Serial 첫 글자로 구분.
-st.subheader("PCBA In-Stock")
-movements = load_movements()
-board_metrics(movements[movements["type"] == "Inbound"]["serial_number"])
+        text, color = deltas.get(board, (None, "normal"))
+        col.metric(board, int(counts.get(board, 0)),
+                   delta=text, delta_color=color, height="stretch", border=True)
 
 
 def render_completion(records: pd.DataFrame, kind: str) -> None:
@@ -51,8 +49,20 @@ def render_completion(records: pd.DataFrame, kind: str) -> None:
         .reset_index(drop=True)
     )
 
-    # 보드별 완료수량(코팅/테스트 끝낸 distinct Serial 수) metric.
-    board_metrics(tidy["serial_number"])
+    # 보드별 완료수량(코팅/테스트 끝낸 distinct Serial 수) metric. 전체 수량 밑에는 '가장 최근에 검수완료된
+    # 날짜'의 수량과 그 날짜를 "수량 · 날짜" delta로 표기한다. 오늘 추가가 있으면 그 날짜가 곧 오늘이 되고,
+    # 오늘 변화가 없는 보드는 마지막으로 추가된 날짜가 보인다(완료 이력이 전혀 없는 보드만 delta 없음).
+    # test_date는 "YYYY-MM-DD" 문자열이라 정렬이 곧 날짜순 → tail(1)이 보드별 최근 날짜 1건.
+    # 최근 날짜가 오늘이면 'normal'(초록 ↑)로 강조하고, 오늘이 아니면 'off'(회색 ↑)로 표기한다.
+    today = pd.Timestamp.now().strftime("%Y-%m-%d")
+    latest = (
+        tidy.assign(board=tidy["serial_number"].str[0].map(PREFIX_TO_LABEL))
+        .groupby(["board", "test_date"]).size().reset_index(name="n")
+        .sort_values("test_date").groupby("board").tail(1)
+    )
+    deltas = {r.board: (f"{int(r.n)} · {r.test_date}", "normal" if r.test_date == today else "off")
+              for r in latest.itertuples()}
+    board_metrics(tidy["serial_number"], deltas)
 
     # 툴팁에 그 막대(날짜·보드)의 '모든' Serial을 보이려면 그룹별 목록이 필요하다. Vega-Lite엔 문자열을
     # 합치는 집계가 없으므로 (날짜, prefix)별 목록을 미리 만들어 합성키로 lookup해 붙인다(표엔 안 나옴).
@@ -159,6 +169,14 @@ def render_value_explorer(records: pd.DataFrame, kind: str) -> None:
                           .mark_rule(color="#888888", strokeDash=[4, 4])
                           .encode(y=alt.Y("y:Q", scale=y_scale)))
     st.altair_chart(alt.layer(*layers), width="stretch", key=f"{kind}_vx_chart")
+
+
+# ── PCBA In-Stock (입고수량) ──────────────────────────────
+# 입고수량 = type='Inbound' 행 수(입출고 관리 페이지의 '입고수량' metric과 동일 기준). 보드는 Serial 첫 글자로
+# 구분하며, 보드별 총 입고 수량을 metric으로 표시한다(delta 없음).
+st.subheader("PCBA In-Stock")
+movements = load_movements()
+board_metrics(movements[movements["type"] == "Inbound"]["serial_number"])
 
 
 # ── Completion Trend: 종류별 탭 ───────────────────────────
