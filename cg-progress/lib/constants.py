@@ -52,8 +52,8 @@ BOARD_CONFIG = {
             {"description": "21. Check the continuity on these points J14-23 and J14-24", "min": 350, "max": 450, "unit": "Ω"},
             {"description": "22. Check the continuity on these points J14-25 and J14-26", "min": 350, "max": 450, "unit": "Ω"},
             {"description": "23. Check the continuity on these points J14-27 and J14-28", "min": 350, "max": 450, "unit": "Ω"},
-            {"description": "24. Check the continuity on these points J14-29 and J14-30", "min": 350, "max": 450, "unit": "Ω"},
-            {"description": "25. Checking the continuity of J14-1 and J14-2 After R1 and R2 were screwed on their designated footprint", "min": 350, "max": 450, "unit": "Ω"},
+            {"description": "24. Check the continuity on these points J14-29 and J14-30", "min": 0.1, "max": 10.0, "unit": "Ω"},
+            {"description": "25. Checking the continuity of J14-1 and J14-2 After R1 and R2 were screwed on their designated footprint", "min": 0.1, "max": 10.0, "unit": "Ω"},
         ],
     },
     "Gate Driver B/D": {
